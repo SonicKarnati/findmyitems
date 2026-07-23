@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "container-search",
+  "version": "${version}",
+  "name": "container-search",
+  "description": "Remember, search, and retrieve items from containers you have opened.",
+  "authors": ["smpb"],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.smpb.containersearch.ContainerSearchClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
