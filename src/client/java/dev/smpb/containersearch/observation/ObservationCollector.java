@@ -27,8 +27,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,13 +54,10 @@ public final class ObservationCollector {
         var world = player.level();
         var dimension = world.dimension().identifier().toString();
 
-        var hitResult = client.hitResult;
-        if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
-            return;
-        }
+        var cachedPos = PositionCache.pos();
+        if (cachedPos.isEmpty()) return;
 
-        var blockHit = (BlockHitResult) hitResult;
-        var rawPos = blockHit.getBlockPos();
+        var rawPos = cachedPos.get();
 
         var resolved = shapeInfo.get();
         var menuKind = resolved.menuKind();

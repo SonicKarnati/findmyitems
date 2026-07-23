@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "container-search",
   "description": "Remember, search, and retrieve items from containers you have opened.",
-  "authors": ["smpb"],
+  "authors": ["SonicKarnati"],
   "license": "All-Rights-Reserved",
   "environment": "client",
   "entrypoints": {
