@@ -1,4 +1,8 @@
 {
   "key.category.container-search": "container-search",
-  "key.container-search.open_catalog": "Open container catalog"
+  "key.container-search.open_catalog": "Open container catalog",
+  "screen.container-search.catalog": "Container Search",
+  "screen.container-search.search": "Search items",
+  "screen.container-search.search_hint": "Search...",
+  "screen.container-search.sources_header": "Sources for %s"
 }
