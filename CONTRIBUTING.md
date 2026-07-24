@@ -27,16 +27,45 @@ Use the **Feature request** template. The one question it really wants answered 
    - input, screens, rendering → a step in `ContainerSearchClientGameTest`
 
    New `@GameTest` classes must be added to the `fabric-gametest` entrypoint in `src/gametest/resources/fabric.mod.json` or they never run.
-4. **Run the checks.**
-
-   ```sh
-   ./gradlew build          # compile + unit tests
-   ./gradlew runGameTest    # headless server tests
-   ```
-
-   `runClientGameTest` boots the real client; run it if you touched anything visual. CI runs the first two on every pull request.
+4. **Run the checks.** See [Testing](#testing) below. CI runs the first two layers on every pull request.
 
 5. **Write the commit message for the person doing the bisect.** `fix: reach the far half of a double chest` beats `fix chest bug`. Prefixes in use: `feat:`, `fix:`, `perf:`, `docs:`, `test:`, `chore:`.
+
+## Testing
+
+Three layers, all runnable without launching the game by hand:
+
+| Command | What it does | Time |
+| --- | --- | --- |
+| `./gradlew build` | Compile, plus plain JUnit over the index, store and model — no Minecraft. | ~1s |
+| `./gradlew runGameTest` | Headless server: real levels, block entities and player inventories. Covers retrieval and indexing a real chest. | ~10s |
+| `./gradlew runClientGameTest` | Boots the **real client**, creates a world, right-clicks a chest, presses the catalog keybind, types a query. | ~30s |
+
+The client test writes screenshots to `build/run/clientGameTest/screenshots/` — that is where you look at the UI instead of loading a world yourself. Its assertions stay on facts (index contents, which screen is open) rather than pixels, so a deliberate visual change does not fail the build.
+
+## The testbed world
+
+In a dev run (`./gradlew runClient`), `/cstest build` puts a row of stocked containers in front of you and `/cstest clear` puts the world back exactly as it was. The command is registered only in a development environment, and the class is stripped from the released jar entirely.
+
+Thirteen containers, each aimed at something specific:
+
+| # | Container | What it is for |
+| --- | --- | --- |
+| 1 | Chest | Baseline: index, search, take |
+| 2 | Double chest | One container across two positions |
+| 3 | Trapped chest | Kind handling |
+| 4 | Barrel | Kind handling |
+| 5 | Shulker box block | Its own menu type (27 slots) |
+| 6 | Ender chest | Pinned to the top of the Containers view |
+| 7 | Chest of shulkers | Nested indexing and nested retrieval, one of them two levels deep |
+| 8 | Chest | Items that differ only by component: two swords both named "Bee Stinger" but enchanted Sharpness V and Smite IV, two enchanted books, a plain sword, a damaged pickaxe |
+| 9 | Chest | Partial crafting materials, so the Crafting view shows a mix of covered and missing |
+| 10 | Chest | 512 iron ingots, for pushing the amount box past 64 |
+| 11 | Chest | Stacking edge cases: beds and dragon eggs (never stack), buckets (16 empty, 1 filled), elytra, cake |
+| 12 | Empty barrel | Empty-container display |
+| 13 | Chest, 25 blocks out | Out of reach: locate works, take is greyed out |
+
+`clear` only ever restores blocks that `build` overwrote, and that record is in memory — it does not survive a restart.
 
 ## House style
 

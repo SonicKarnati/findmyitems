@@ -51,6 +51,14 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
+// The /cstest testbed exists to stock a dev world by hand. It is already registered only when
+// isDevelopmentEnvironment() is true, so a player could never run it — but shipping the class at
+// all invites someone to find it and wonder. It is loaded lazily inside that check, so a released
+// jar without it behaves identically.
+jar {
+    exclude 'dev/smpb/containersearch/debug/**'
+}
+
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {

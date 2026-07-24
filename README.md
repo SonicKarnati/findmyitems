@@ -1,81 +1,96 @@
 # container-search
 
-Pairs well with [Shulker Box Tooltip](https://modrinth.com/mod/shulkerboxtooltip), which previews shulker contents on hover — this mod indexes what is inside them, that one shows it to you. It is listed under `recommends`, so it is optional.
+You know you have iron somewhere. You built eleven chests and you were disciplined about it for about a week.
 
-`container-search` is a client-side Fabric mod for Minecraft Java 26.2. It remembers supported storage containers you open in single-player worlds, makes their contents searchable, and uses normal container interaction to retrieve reachable items.
+`container-search` remembers what was in every container you have opened, lets you search all of it at once, and hands you the item without making you walk back and open the chest yourself.
 
-## Single-player only
-
-This is a product decision, not a missing feature. The catalog is a memory of containers **you** opened. In a world only you can change, that memory stays true; on a server it goes stale the moment another player touches a chest, and there is no reliable way for a client to know that it has. A catalog that is confidently wrong is worse than no catalog.
-
-So on a multiplayer server the mod stands down completely — no indexing, no filter box, and the catalog keybind says so. Modded containers are not supported either.
+Client-side Fabric mod for Minecraft Java 26.2. **Single-player worlds only** — see [below](#why-single-player-only) for why that is on purpose.
 
 ## Installing
 
-Requires [Fabric Loader](https://fabricmc.net/use/) 0.19.3+, [Fabric API](https://modrinth.com/mod/fabric-api), [Mod Menu](https://modrinth.com/mod/modmenu) and [Cloth Config](https://modrinth.com/mod/cloth-config). Drop the jar from the [releases page](https://github.com/SonicKarnati/container-search/releases) into `mods/` alongside them.
+You need [Fabric Loader](https://fabricmc.net/use/) 0.19.3 or newer, and these mods in your `mods/` folder:
 
-Settings live in Mod Menu: how often remembered chests are re-scanned (in seconds, 0 to disable) and how far away that re-scan reaches (in blocks, 0 for unlimited).
+- [Fabric API](https://modrinth.com/mod/fabric-api)
+- [Mod Menu](https://modrinth.com/mod/modmenu)
+- [Cloth Config](https://modrinth.com/mod/cloth-config)
 
-## The catalog
+Then drop `container-search-*.jar` from the [releases page](https://github.com/SonicKarnati/container-search/releases) in next to them.
 
-Press `B`. Three views, switched with the tabs:
+Optional but a good pairing: [Shulker Box Tooltip](https://modrinth.com/mod/shulkerboxtooltip). This mod indexes what is inside your shulker boxes; that one shows you on hover.
 
-- **Items** — every item you have seen, with the nearest container holding it. The ender-eye button glows that container in the world, the hopper pulls the typed amount into your inventory, and the chest puts it back. Deposit is deliberately narrow: it only offers to return items the container already stocks, so it never guesses where an unfamiliar item belongs.
-- **Containers** — every container you have opened, nearest first, with your ender chest pinned to the top even when empty (unless you are searching).
-- **Crafting** — leave the box empty for every craftable item, alphabetically, and click one; or type a name directly. You get its material tree, charged against what your chests already hold. Indented rows are sub-crafts; a red row is something you have to go and find.
+## How it works
 
-Ctrl+1/2/3 (Cmd on macOS) jumps between the views. Items and Containers each render as a list or a grid (the toggle on the right); in the grid, left-click takes and right-click locates.
+**Open chests. That is the whole setup.** Every container you open is remembered — what was in it, where it is, and when you last saw it. Nothing is scanned behind your back; if you have never opened it, it is not in the catalog.
 
-Search covers item names, ids and tooltips, including enchantments — `smite 4` and `smite iv` both find the same sword, and two swords that differ only by enchantment stay two separate entries.
+**Press `B`** to open the catalog. Three tabs, and `Ctrl+1` / `Ctrl+2` / `Ctrl+3` (`Cmd` on macOS) jump between them:
 
-Items stashed inside a shulker box inside a chest are indexed and retrievable, up to four levels deep.
+### Items
 
-## Playing with it by hand
+Everything you have seen, and the nearest container holding it. Three buttons on each row:
 
-In a dev run (`./gradlew runClient`), `/cstest build` puts a row of stocked containers in front of you and `/cstest clear` puts the world back exactly as it was. The command is registered only in a development environment, so a released jar does not carry it.
+| Button | What it does |
+| --- | --- |
+| 🧿 Ender eye | Outlines that container in the world — through walls, so you can see it from here |
+| 🪣 Hopper | Takes the amount in the box straight into your inventory |
+| 📦 Chest | Puts items back where they came from |
 
-Thirteen containers, each aimed at something specific:
+Taking and putting back only work when you are close enough to have clicked the chest yourself. Out of reach, the buttons grey out and the ender eye still works — go and look.
 
-| # | Container | What it is for |
-| --- | --- | --- |
-| 1 | Chest | Baseline: index, search, take |
-| 2 | Double chest | One container across two positions |
-| 3 | Trapped chest | Kind handling |
-| 4 | Barrel | Kind handling |
-| 5 | Shulker box block | Its own menu type (27 slots) |
-| 6 | Ender chest | Pinned to the top of the Containers view |
-| 7 | Chest of shulkers | Nested indexing and nested retrieval, one of them two levels deep |
-| 8 | Chest | Items that differ only by component: two swords both named "Bee Stinger" but enchanted Sharpness V and Smite IV, two enchanted books, a plain sword, a damaged pickaxe |
-| 9 | Chest | Partial crafting materials, so the Crafting view shows a mix of covered and missing |
-| 10 | Chest | 512 iron ingots, for pushing the amount box past 64 |
-| 11 | Chest | Stacking edge cases: beds and dragon eggs (never stack), buckets (16 empty, 1 filled), elytra, cake |
-| 12 | Empty barrel | Empty-container display |
-| 13 | Chest, 25 blocks out | Out of reach: locate works, take is greyed out |
+Putting things back is deliberately narrow: it only offers to return items that container **already stocks**. The mod does not guess where an unfamiliar item belongs, because guessing means scattering your inventory across the nearest chest.
 
-`clear` only ever restores blocks that `build` overwrote, and that record is in memory — it does not survive a restart.
+### Containers
 
-## Testing
+Every container you have opened, nearest first. Your ender chest is pinned to the top even when it is empty.
 
-Three layers, all runnable without launching the game by hand:
+### Crafting
 
-| Command | What it does | Time |
-| --- | --- | --- |
-| `./gradlew test` | Plain JUnit over the index, store, and model — no Minecraft. | ~1s |
-| `./gradlew runGameTest` | Headless server: real levels, block entities and player inventories. Covers `RetrieveHandler` and indexing a real chest. | ~10s |
-| `./gradlew runClientGameTest` | Boots the **real client**, creates a world, right-clicks a chest, presses the catalog keybind, types a query. | ~30s |
+Type an item, or leave the box empty and pick from the list of everything craftable. You get its full material tree, already charged against what your chests hold:
 
-`./gradlew build` runs the first layer; the other two are separate tasks (they start Minecraft).
+- **Indented rows** are sub-crafts — the planks under the chest, the logs under the planks
+- **Green** means your chests already cover it
+- **Red** means you have to go and find it
 
-The client test writes screenshots to `build/run/clientGameTest/screenshots/` — that is where you look at the UI instead of loading a world yourself. Assertions in that test stay on facts (index contents, which screen is open), not pixels, so a deliberate visual change does not fail the build.
+Sticks you already have stay a single row; it does not walk down to logs for something you have forty of in a barrel.
 
-Adding a case:
+## Searching
 
-- world/server behaviour → a `@GameTest` method in `src/gametest/.../ContainerSearchGameTest.java`
-- a container that is not one block entity, an inventory that will not take what is offered, or anything else where the invariant is "nothing was created or destroyed" → `RetrieveEdgeCaseGameTest.java`
-- anything involving input, screens or rendering → a step in `ContainerSearchClientGameTest.java`
+The box searches names, ids and tooltips together, so `smite` finds the sword and `iron` finds the ingots, the blocks and the pickaxe.
 
-New `@GameTest` classes must be listed in the `fabric-gametest` entrypoint of `src/gametest/resources/fabric.mod.json`, or they are silently never run.
+- **Enchantments work either way you write them** — `smite 4` and `smite iv` both find the same sword
+- **Items that differ only by enchantment stay separate** — two diamond swords named "Bee Stinger" are two rows if one is Sharpness and the other is Smite, because they are not interchangeable
+- **Shulker boxes are see-through** — items inside a shulker inside a chest are indexed and retrievable, four levels deep
 
-## Contributing and reporting bugs
+There is also a filter box on every ordinary container screen. Type in it and non-matching slots dim, so what you want stands out. Nothing moves; it is only a highlight.
 
-Bugs, ideas and questions all go through [GitHub Issues](https://github.com/SonicKarnati/container-search/issues) — pick a template and it will ask for what is actually needed to reproduce the problem. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers the branch, commit and review conventions, and the checks a change has to pass.
+## Settings
+
+In Mod Menu, under container-search:
+
+| Setting | What it does |
+| --- | --- |
+| **Rescan interval** | How often nearby remembered chests are quietly re-checked, in seconds. `0` turns it off, and the catalog then only updates when you open something. |
+| **Search distance** | How far that re-check reaches, in blocks. `0` is unlimited. Lower it if you have a very large base and notice a hitch. |
+
+The catalog keybind lives in the ordinary Controls screen, with everything else. It is `B` by default.
+
+## What it does not do
+
+**Multiplayer.** See below.
+
+**Modded containers.** Chests, trapped chests, barrels, ender chests and shulker boxes. A backpack from another mod is not indexed.
+
+**Chests you have not opened.** Knowing what is inside a container you have never looked in is not something a client can honestly do.
+
+**Chests that changed while you were away.** If a hopper drained the barrel since you last opened it, the catalog will say so only after the next re-scan reaches it — and only if it is loaded and in range. Taking something that is no longer there fails cleanly rather than inventing it.
+
+### Why single-player only
+
+The catalog is a memory of containers **you** opened. In a world only you can change, that memory stays true. On a server, it goes stale the moment another player touches a chest — and there is no reliable way for your client to find out that it has. You would get a catalog that is confidently wrong, which is worse than no catalog at all.
+
+So on a multiplayer server the mod stands down completely: no indexing, no filter box, and the catalog keybind tells you why. This is a decision, not a to-do.
+
+## Something wrong?
+
+[Open an issue.](https://github.com/SonicKarnati/container-search/issues) There is a template that asks for what is actually needed to find the cause. A catalog showing the wrong count is the most useful kind of report — say what changed the chest between the last time you opened it and the moment the catalog lied.
+
+Want to change the code? [`CONTRIBUTING.md`](CONTRIBUTING.md) has the build, the tests and the conventions.
