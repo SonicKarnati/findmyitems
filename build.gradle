@@ -12,10 +12,13 @@ base {
 
 repositories {
     mavenCentral()
+    maven { url "https://api.modrinth.com/maven" }
 }
 
 loom {
     splitEnvironmentSourceSets()
+
+    accessWidenerPath = file("src/main/resources/container-search.accesswidener")
 
     mods {
         "container-search" {
@@ -25,10 +28,23 @@ loom {
     }
 }
 
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "container-search-test"
+        enableGameTests = true
+        enableClientGameTests = true
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    implementation "maven.modrinth:sodium:${project.sodium_version}"
+    implementation "maven.modrinth:modmenu:${project.modmenu_version}"
+    implementation "maven.modrinth:cloth-config:${project.cloth_config_version}"
 
     testImplementation platform("org.junit:junit-bom:${project.junit_version}")
     testImplementation "org.junit.jupiter:junit-jupiter"

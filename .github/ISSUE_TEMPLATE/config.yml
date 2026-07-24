@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question about how something works
+    url: https://github.com/SonicKarnati/container-search/discussions
+    about: Ask here rather than opening an issue — questions get answered faster and stay findable.

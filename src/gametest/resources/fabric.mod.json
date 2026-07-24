@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "container-search-test",
+  "version": "1.0.0",
+  "name": "Container Search Test",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "dev.smpb.containersearch.test.ContainerSearchGameTest",
+      "dev.smpb.containersearch.test.RetrieveEdgeCaseGameTest"
+    ],
+    "fabric-client-gametest": [
+      "dev.smpb.containersearch.test.ContainerSearchClientGameTest",
+      "dev.smpb.containersearch.test.TestbedCommandGameTest"
+    ]
+  }
+}

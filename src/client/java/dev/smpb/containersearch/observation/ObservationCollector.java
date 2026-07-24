@@ -1,27 +1,25 @@
 package dev.smpb.containersearch.observation;
 
-import com.mojang.serialization.JsonOps;
+import dev.smpb.containersearch.ContainerSearchClient;
+import dev.smpb.containersearch.config.ModConfig;
 import dev.smpb.containersearch.index.ContainerIndex;
+import dev.smpb.containersearch.index.IndexedContainer;
 import dev.smpb.containersearch.model.BlockPosition;
 import dev.smpb.containersearch.model.ContainerKind;
 import dev.smpb.containersearch.model.ContainerObservation;
-import dev.smpb.containersearch.model.SlotSnapshot;
-import dev.smpb.containersearch.model.StackKey;
-import dev.smpb.containersearch.model.StackSnapshot;
+import dev.smpb.containersearch.model.SourceKey;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.minecraft.core.component.DataComponentPatch;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.Container;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ShulkerBoxMenu;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -29,24 +27,62 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public final class ObservationCollector {
-    private final ContainerIndex index;
+    /** Containers re-read per tick. Small enough that a big base costs a slice, not a stutter. */
+    private static final int RESCAN_BATCH = 8;
 
-    public ObservationCollector(ContainerIndex index) {
+    private final ContainerIndex index;
+    private final ModConfig config;
+    private final Deque<SourceKey> rescanQueue = new ArrayDeque<>();
+    private final Map<SourceKey, IndexedContainer> rescanTargets = new HashMap<>();
+    private AbstractContainerScreen<?> pendingScreen;
+    private int scanCounter;
+
+    public ObservationCollector(ContainerIndex index, ModConfig config) {
         this.index = index;
-        ScreenEvents.BEFORE_INIT.register(this::onScreenInit);
+        this.config = config;
+        ScreenEvents.AFTER_INIT.register(this::onAfterScreenInit);
+        ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
     }
 
-    private void onScreenInit(Minecraft client, Screen screen, int scaledWidth, int scaledHeight) {
-        if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) return;
+    private void onAfterScreenInit(Minecraft client, Screen screen, int scaledWidth, int scaledHeight) {
+        if (!ContainerSearchClient.activeWorld()) return;
+        if (screen instanceof AbstractContainerScreen<?> containerScreen) {
+            pendingScreen = containerScreen;
+        }
+    }
 
-        var menu = containerScreen.getMenu();
-        var shapeInfo = resolveShapeInfo(menu);
-        if (shapeInfo.isEmpty()) return;
+    private void onTick(Minecraft client) {
+        if (!ContainerSearchClient.activeWorld()) {
+            pendingScreen = null;
+            rescanQueue.clear();
+            return;
+        }
+
+        processPendingObservation(client);
+
+        var interval = config.rescanIntervalSeconds * 20;
+        if (interval > 0 && ++scanCounter >= interval) {
+            scanCounter = 0;
+            queueContainerRescan();
+        }
+        drainRescanQueue(client);
+    }
+
+    private void processPendingObservation(Minecraft client) {
+        var screen = pendingScreen;
+        if (screen == null) return;
+        pendingScreen = null;
+
+        var menu = screen.getMenu();
 
         var player = client.player;
         if (player == null) return;
@@ -59,30 +95,131 @@ public final class ObservationCollector {
 
         var rawPos = cachedPos.get();
 
-        var resolved = shapeInfo.get();
-        var menuKind = resolved.menuKind();
-        var storageSlots = resolved.storageSlots();
+        var shapeInfo = resolveShapeInfo(menu);
+        if (shapeInfo.isEmpty()) return;
 
-        var kind = resolveKind(world.getBlockState(rawPos).getBlock());
+        var resolved = shapeInfo.get();
+        var storageSlots = resolved.storageSlots;
+
+        var block = world.getBlockState(rawPos).getBlock();
+        var kind = resolveKind(block);
         if (kind.isEmpty()) return;
 
         var containerKind = kind.get();
         var positions = findPositions(world, rawPos, containerKind);
         if (positions.isEmpty()) return;
 
-        var shape = ContainerShape.resolve(containerKind, menuKind, storageSlots, positions);
+        var shape = ContainerShape.resolve(containerKind, resolved.menuKind, storageSlots, positions);
         if (shape.isEmpty()) return;
 
         var containerShape = shape.get();
         var contentsKey = ObservationBuilder.contentsKey(dimension, containerShape.kind(), containerShape.positions());
         var accessSources = ObservationBuilder.accessSources(dimension, containerShape.kind(), containerShape.positions());
-        var slots = readSlots(menu, containerShape.storageSlots(), player);
+        var slots = SlotReader.readMenuSlots(menu, storageSlots, player);
         var observation = new ContainerObservation(contentsKey, accessSources, slots, Instant.now());
 
         index.observe(observation);
     }
 
-    private static Optional<ShapeInfo> resolveShapeInfo(AbstractContainerMenu menu) {
+    /**
+     * Lines up every remembered container to be re-read.
+     *
+     * <p>Queued rather than done here: re-reading a large base in one go means walking every slot
+     * of every container in range, plus their nested shulkers, inside a single server tick. That is
+     * a visible hitch every interval. {@link #RESCAN_BATCH} containers a tick spreads the same work
+     * flat, and the queue is rebuilt from scratch each interval so it cannot drift out of date.
+     */
+    private void queueContainerRescan() {
+        rescanQueue.clear();
+        rescanTargets.clear();
+        for (var container : index.snapshot().containers()) {
+            for (var source : container.accessSources()) {
+                if (rescanTargets.put(source, container) == null) rescanQueue.add(source);
+            }
+        }
+    }
+
+    private void drainRescanQueue(Minecraft client) {
+        if (rescanQueue.isEmpty()) return;
+
+        var server = client.getSingleplayerServer();
+        var player = client.player;
+        if (server == null || player == null) {
+            rescanQueue.clear();
+            return;
+        }
+
+        var batch = new ArrayList<SourceKey>(RESCAN_BATCH);
+        for (int i = 0; i < RESCAN_BATCH && !rescanQueue.isEmpty(); i++) {
+            batch.add(rescanQueue.poll());
+        }
+
+        var searchBlocks = config.searchDistanceBlocks;
+        var maxDistSq = (double) searchBlocks * searchBlocks;
+        var useDistanceLimit = searchBlocks > 0;
+
+        var targets = Map.copyOf(rescanTargets);
+
+        server.execute(() -> {
+            var observations = new ArrayList<ContainerObservation>();
+            var missingSources = new ArrayList<SourceKey>();
+
+            for (var source : batch) {
+                var container = targets.get(source);
+                if (container != null) {
+                    if (source.positions().isEmpty()) continue;
+                    var pos = source.positions().getFirst();
+                    var mcPos = new BlockPos(pos.x(), pos.y(), pos.z());
+                    var dim = source.dimension();
+                    var worldKey = ResourceKey.create(Registries.DIMENSION, Identifier.parse(dim));
+                    var world = server.getLevel(worldKey);
+                    if (world == null || !world.isLoaded(mcPos)) continue;
+
+                    if (useDistanceLimit) {
+                        var dx = pos.x() + 0.5 - player.getX();
+                        var dy = pos.y() + 0.5 - player.getY();
+                        var dz = pos.z() + 0.5 - player.getZ();
+                        if (dx * dx + dy * dy + dz * dz > maxDistSq) continue;
+                    }
+
+                    var block = world.getBlockState(mcPos).getBlock();
+                    var kind = resolveKind(block);
+                    if (kind.isEmpty() || kind.get() != source.kind()) {
+                        missingSources.add(source);
+                        continue;
+                    }
+
+                    var be = world.getBlockEntity(mcPos);
+                    if (!(be instanceof Container containerBE) || be.isRemoved()) {
+                        missingSources.add(source);
+                        continue;
+                    }
+
+                    var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
+                    if (serverPlayer == null) continue;
+
+                    var slots = SlotReader.readContainerSlots(containerBE, serverPlayer);
+
+                    var contentsKey = source.positions().size() == container.contentsKey().positions().size()
+                            ? container.contentsKey()
+                            : SourceKey.storage(dim, source.kind(), source.positions());
+                    var obs = new ContainerObservation(contentsKey, List.of(source), slots, Instant.now());
+                    observations.add(obs);
+                }
+            }
+
+            client.execute(() -> {
+                for (var obs : observations) {
+                    index.observe(obs);
+                }
+                for (var source : missingSources) {
+                    index.markMissing(source);
+                }
+            });
+        });
+    }
+
+    private static Optional<ShapeInfo> resolveShapeInfo(net.minecraft.world.inventory.AbstractContainerMenu menu) {
         if (menu instanceof ChestMenu chestMenu) {
             var rows = chestMenu.getRowCount();
             var containerSlots = rows * 9;
@@ -97,13 +234,12 @@ public final class ObservationCollector {
         return Optional.empty();
     }
 
-    private static Optional<ContainerKind> resolveKind(Block block) {
+    static Optional<ContainerKind> resolveKind(Block block) {
         if (block == Blocks.CHEST) return Optional.of(ContainerKind.CHEST);
         if (block == Blocks.TRAPPED_CHEST) return Optional.of(ContainerKind.TRAPPED_CHEST);
         if (block == Blocks.BARREL) return Optional.of(ContainerKind.BARREL);
         if (block == Blocks.ENDER_CHEST) return Optional.of(ContainerKind.ENDER_CHEST);
         if (block instanceof ShulkerBoxBlock) return Optional.of(ContainerKind.SHULKER_BOX);
-
         return Optional.empty();
     }
 
@@ -124,57 +260,6 @@ public final class ObservationCollector {
         }
 
         return List.of(bp);
-    }
-
-    static List<SlotSnapshot> readSlots(AbstractContainerMenu menu, int containerSlots, Player player) {
-        var snapshots = new ArrayList<SlotSnapshot>(containerSlots);
-        var tooltipContext = player.level() != null
-            ? Item.TooltipContext.of(player.level())
-            : Item.TooltipContext.EMPTY;
-
-        for (int i = 0; i < containerSlots; i++) {
-            var slot = menu.getSlot(i);
-            var stack = slot.getItem();
-            if (stack.isEmpty()) continue;
-
-            snapshots.add(snapshotStack(stack, i, tooltipContext, player));
-        }
-        return List.copyOf(snapshots);
-    }
-
-    static SlotSnapshot snapshotStack(ItemStack stack, int slotIndex,
-                                       Item.TooltipContext tooltipContext, Player player) {
-        var itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        var componentsJson = serializeComponents(stack.getComponentsPatch());
-        var key = new StackKey(itemId, componentsJson);
-        var count = stack.getCount();
-        var displayName = stack.getHoverName().getString();
-        var tooltip = getTooltipLines(stack, tooltipContext, player);
-        return new SlotSnapshot(slotIndex, new StackSnapshot(key, count, displayName, tooltip));
-    }
-
-    static String serializeComponents(DataComponentPatch patch) {
-        if (patch.isEmpty()) return "{}";
-        try {
-            var json = DataComponentPatch.CODEC
-                .encodeStart(JsonOps.INSTANCE, patch)
-                .getOrThrow();
-            return dev.smpb.containersearch.model.CanonicalJson.stringify(json);
-        } catch (Exception e) {
-            return "{}";
-        }
-    }
-
-    static List<String> getTooltipLines(ItemStack stack,
-                                        Item.TooltipContext tooltipContext, Player player) {
-        try {
-            return stack.getTooltipLines(tooltipContext, player, TooltipFlag.NORMAL)
-                .stream()
-                .map(Component::getString)
-                .toList();
-        } catch (Exception e) {
-            return List.of();
-        }
     }
 
     private record ShapeInfo(MenuKind menuKind, int storageSlots) {}

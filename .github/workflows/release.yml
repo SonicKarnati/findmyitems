@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "25"
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # A tag that ships a broken jar is worse than a late release.
+      - run: ./gradlew build
+      - run: ./gradlew runGameTest
+
+      # The tag is the source of truth for the version; a mismatch means gradle.properties
+      # was not bumped, and the jar inside the release would be named something else.
+      - name: Check the tag matches mod_version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(grep '^mod_version=' gradle.properties | cut -d= -f2)
+          if [ "$tag" != "$declared" ]; then
+            echo "tag $tag does not match mod_version $declared in gradle.properties" >&2
+            exit 1
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
