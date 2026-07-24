@@ -1,0 +1,245 @@
+package dev.smpb.containersearch.test;
+
+import dev.smpb.containersearch.index.InMemoryContainerIndex;
+import dev.smpb.containersearch.model.ContainerKind;
+import dev.smpb.containersearch.model.ContainerObservation;
+import dev.smpb.containersearch.model.BlockPosition;
+import dev.smpb.containersearch.model.SourceKey;
+import dev.smpb.containersearch.observation.SlotReader;
+import dev.smpb.containersearch.retrieval.RetrieveHandler;
+import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.component.ItemContainerContents;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * Server-side game tests: real level, real block entities, real player inventory.
+ * Run with {@code ./gradlew runGameTest} (headless, no window).
+ *
+ * <p>These cover the parts of the mod that touch the world. The client-side flow
+ * (interaction -> index -> catalog screen) lives in {@link ContainerSearchClientGameTest}.
+ */
+public final class ContainerSearchGameTest {
+    private static final String EMPTY_STRUCTURE = "fabric-gametest-api-v1:empty";
+    private static final BlockPos CHEST = new BlockPos(1, 1, 1);
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveMovesRequestedAmountIntoInventory(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
+        var player = playerNextToChest(helper);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond", "{}", 32);
+
+        helper.assertTrue(took, "retrieve should report success");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 32,
+                "player should hold 32 diamonds, holds " + player.getInventory().countItem(Items.DIAMOND));
+        helper.assertTrue(chest.getItem(0).getCount() == 32,
+                "chest should keep 32 diamonds, kept " + chest.getItem(0).getCount());
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveDrainsMultipleStacks(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
+        chest.setItem(1, new ItemStack(Items.DIAMOND, 64));
+        var player = playerNextToChest(helper);
+
+        RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond", "{}", 100);
+
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 100,
+                "player should hold 100 diamonds, holds " + player.getInventory().countItem(Items.DIAMOND));
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveIgnoresOtherItems(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.OAK_LOG, 64));
+        var player = playerNextToChest(helper);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond", "{}", 1);
+
+        helper.assertTrue(!took, "retrieve should fail when the item is absent");
+        helper.assertTrue(chest.getItem(0).getCount() == 64, "chest contents must be untouched");
+        helper.succeed();
+    }
+
+    @SuppressWarnings("removal")
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveRefusesOutOfReachChest(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
+        var player = helper.makeMockServerPlayerInLevel();
+        var far = helper.absoluteVec(new net.minecraft.world.phys.Vec3(50.5, 2.0, 50.5));
+        player.setPos(far.x, far.y, far.z);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond", "{}", 1);
+
+        helper.assertTrue(!took, "retrieve should fail beyond 5 blocks");
+        helper.assertTrue(chest.getItem(0).getCount() == 64, "chest contents must be untouched");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void indexAndRetrieveReachIntoAShulkerInsideTheChest(GameTestHelper helper) {
+        var shulker = new ItemStack(Items.SHULKER_BOX);
+        shulker.set(DataComponents.CONTAINER,
+                ItemContainerContents.fromItems(List.of(new ItemStack(Items.GOLD_INGOT, 20))));
+
+        var chest = placeChest(helper, shulker);
+        var player = playerNextToChest(helper);
+
+        var slots = SlotReader.readContainerSlots(chest, player);
+        var gold = slots.stream()
+                .filter(s -> s.stack().key().itemId().equals("minecraft:gold_ingot"))
+                .mapToInt(s -> s.stack().count())
+                .sum();
+        helper.assertTrue(gold == 20, "nested gold should be indexed, saw " + gold);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:gold_ingot", "{}", 8);
+
+        helper.assertTrue(took, "retrieve should reach into the shulker");
+        helper.assertTrue(player.getInventory().countItem(Items.GOLD_INGOT) == 8,
+                "player should hold 8 gold, holds " + player.getInventory().countItem(Items.GOLD_INGOT));
+
+        var left = chest.getItem(0).get(DataComponents.CONTAINER);
+        var remaining = left == null ? 0 : left.nonEmptyItemCopyStream().mapToInt(ItemStack::getCount).sum();
+        helper.assertTrue(remaining == 12, "shulker should keep 12 gold, kept " + remaining);
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void depositPutsCarriedItemsBackWhereTheyLive(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.OAK_LOG, 10));
+        var player = playerNextToChest(helper);
+        player.getInventory().add(new ItemStack(Items.OAK_LOG, 30));
+
+        var moved = RetrieveHandler.deposit(player, helper.absolutePos(CHEST), "minecraft:oak_log", "{}", 20);
+
+        helper.assertTrue(moved == 20, "should have deposited 20 logs, moved " + moved);
+        helper.assertTrue(chest.getItem(0).getCount() == 30,
+                "chest should hold 30 logs, holds " + chest.getItem(0).getCount());
+        helper.assertTrue(player.getInventory().countItem(Items.OAK_LOG) == 10,
+                "player should keep 10 logs, kept " + player.getInventory().countItem(Items.OAK_LOG));
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void depositRefusesItemsTheContainerDoesNotStock(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.OAK_LOG, 10));
+        var player = playerNextToChest(helper);
+        player.getInventory().add(new ItemStack(Items.DIAMOND_SWORD));
+
+        var moved = RetrieveHandler.deposit(player, helper.absolutePos(CHEST), "minecraft:diamond_sword", "{}", 1);
+
+        helper.assertTrue(moved == 0, "a sword the chest never held must not be deposited");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND_SWORD) == 1, "the sword stays on the player");
+        helper.assertTrue(chest.getItem(1).isEmpty(), "the chest gains nothing");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveDistinguishesItemsByComponents(GameTestHelper helper) {
+        var named = new ItemStack(Items.DIAMOND_SWORD);
+        named.set(DataComponents.CUSTOM_NAME, Component.literal("Bee Stinger"));
+
+        var chest = placeChest(helper, named);
+        chest.setItem(1, new ItemStack(Items.DIAMOND_SWORD));
+        var player = playerNextToChest(helper);
+
+        // "{}" is the plain sword's component signature, so the named one must be left alone.
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond_sword", "{}", 1);
+
+        helper.assertTrue(took, "the plain sword should be retrievable");
+        helper.assertTrue(chest.getItem(0).has(DataComponents.CUSTOM_NAME),
+                "the named sword must stay in the chest");
+        helper.assertTrue(chest.getItem(1).isEmpty(), "the plain sword should have left the chest");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void enchantmentLevelsAreSearchableAsDigits(GameTestHelper helper) {
+        var sword = new ItemStack(Items.DIAMOND_SWORD);
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("Bee Stinger"));
+        var smite = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
+        smite.set(helper.getLevel().registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                .getOrThrow(Enchantments.SMITE), 4);
+        sword.set(DataComponents.ENCHANTMENTS, smite.toImmutable());
+
+        placeChest(helper, sword);
+        var player = playerNextToChest(helper);
+        var chest = helper.getBlockEntity(CHEST, ChestBlockEntity.class);
+        var absolute = helper.absolutePos(CHEST);
+
+        var index = new InMemoryContainerIndex();
+        var positions = List.of(new BlockPosition(absolute.getX(), absolute.getY(), absolute.getZ()));
+        var key = SourceKey.storage(dimension(helper), ContainerKind.CHEST, positions);
+        index.observe(new ContainerObservation(key, List.of(key),
+                SlotReader.readContainerSlots(chest, player), Instant.now()));
+
+        helper.assertTrue(index.search("smite iv").size() == 1, "roman spelling should match");
+        helper.assertTrue(index.search("smite 4").size() == 1, "arabic spelling should match");
+        helper.assertTrue(index.search("smite 5").isEmpty(), "the wrong level should not match");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void indexFindsItemsReadFromARealChest(GameTestHelper helper) {
+        placeChest(helper, new ItemStack(Items.DIAMOND, 12));
+        var player = playerNextToChest(helper);
+        var absolute = helper.absolutePos(CHEST);
+        var chest = helper.getBlockEntity(CHEST, ChestBlockEntity.class);
+
+        var slots = SlotReader.readContainerSlots(chest, player);
+        var positions = List.of(new BlockPosition(absolute.getX(), absolute.getY(), absolute.getZ()));
+        var key = SourceKey.storage(dimension(helper), ContainerKind.CHEST, positions);
+
+        var index = new InMemoryContainerIndex();
+        index.observe(new ContainerObservation(key, List.of(key), slots, Instant.now()));
+
+        var results = index.search("diamond");
+        helper.assertTrue(results.size() == 1, "expected exactly one match, got " + results.size());
+        helper.assertTrue(results.getFirst().totalCount() == 12,
+                "expected 12 diamonds, got " + results.getFirst().totalCount());
+        helper.assertTrue(index.search("netherite").isEmpty(), "unrelated query must not match");
+        helper.succeed();
+    }
+
+    private static ChestBlockEntity placeChest(GameTestHelper helper, ItemStack contents) {
+        helper.setBlock(CHEST, Blocks.CHEST);
+        var chest = helper.getBlockEntity(CHEST, ChestBlockEntity.class);
+        helper.assertTrue(chest != null, "chest block entity should exist");
+        chest.setItem(0, contents);
+        return chest;
+    }
+
+    /** Mock player standing on top of the chest, well inside the 5-block reach. */
+    @SuppressWarnings("removal")
+    private static ServerPlayer playerNextToChest(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        var pos = helper.absolutePos(CHEST);
+        player.setPos(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+        return player;
+    }
+
+    private static String dimension(GameTestHelper helper) {
+        return helper.getLevel().dimension().identifier().toString();
+    }
+}

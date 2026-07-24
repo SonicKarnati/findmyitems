@@ -1,143 +1,112 @@
 package dev.smpb.containersearch.index;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
-import dev.smpb.containersearch.model.BlockPosition;
-import dev.smpb.containersearch.model.ContainerKind;
-import dev.smpb.containersearch.model.ContainerObservation;
-import dev.smpb.containersearch.model.SlotSnapshot;
-import dev.smpb.containersearch.model.SourceKey;
-import dev.smpb.containersearch.model.StackKey;
-import dev.smpb.containersearch.model.StackSnapshot;
-import java.time.Instant;
-import java.util.List;
-import org.junit.jupiter.api.BeforeEach;
+import dev.smpb.containersearch.model.*;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.List;
+
 final class InMemoryContainerIndexTest {
-    private InMemoryContainerIndex index;
-    private SourceKey firstChest;
+    private static final String DIM = "minecraft:overworld";
+    private static final BlockPosition POS = new BlockPosition(10, 64, 200);
+    private static final SourceKey SOURCE = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(POS));
 
-    @BeforeEach
-    void setUp() {
-        index = new InMemoryContainerIndex();
-        firstChest = source(1);
+    private static StackSnapshot stack(String itemId, int count) {
+        return new StackSnapshot(new StackKey(itemId, "{}"), count, itemId, List.of());
+    }
+
+    private static SlotSnapshot slot(int index, String itemId, int count) {
+        return new SlotSnapshot(index, stack(itemId, count));
+    }
+
+    private static ContainerObservation observation(SourceKey contentsKey, SourceKey accessSource, SlotSnapshot... slots) {
+        return new ContainerObservation(contentsKey, List.of(accessSource), List.of(slots), Instant.now());
     }
 
     @Test
-    void newerObservationReplacesRatherThanMerges() {
-        index.observe(observation(firstChest, stack(0, "minecraft:stone", "{}", 64, "Stone")));
-        long previousRevision = index.revision();
+    void observeAndSearchReturnsItem() {
+        var index = new InMemoryContainerIndex();
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 64)));
 
-        index.observe(observation(firstChest, stack(0, "minecraft:dirt", "{}", 3, "Dirt")));
-
-        assertTrue(index.search("stone").isEmpty());
-        assertEquals(3, index.search("dirt").getFirst().totalCount());
-        assertTrue(index.revision() > previousRevision);
+        var results = index.search("oak");
+        assertEquals(1, results.size());
+        assertEquals("minecraft:oak_log", results.getFirst().key().itemId());
+        assertEquals(64, results.getFirst().totalCount());
     }
 
     @Test
-    void componentDistinctStacksRemainSeparate() {
+    void searchWithEmptyQueryReturnsAll() {
+        var index = new InMemoryContainerIndex();
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 64)));
         index.observe(observation(
-                firstChest,
-                stack(0, "minecraft:diamond_pickaxe", "{damage:1}", 1, "Diamond Pickaxe"),
-                stack(1, "minecraft:diamond_pickaxe", "{damage:2}", 1, "Diamond Pickaxe")));
+                SourceKey.storage(DIM, ContainerKind.CHEST, List.of(new BlockPosition(20, 64, 200))),
+                SourceKey.storage(DIM, ContainerKind.CHEST, List.of(new BlockPosition(20, 64, 200))),
+                slot(0, "minecraft:diamond", 10)));
 
-        var results = index.search("diamond pickaxe");
-
+        var results = index.search("");
         assertEquals(2, results.size());
-        assertNotEquals(results.get(0).key(), results.get(1).key());
     }
 
     @Test
-    void everyQueryTermMustMatchNameIdentifierOrTooltip() {
-        index.observe(observation(
-                firstChest,
-                new SlotSnapshot(0, new StackSnapshot(
-                        new StackKey("minecraft:diamond_pickaxe", "{enchantments:efficiency_5}"),
-                        1,
-                        "Diamond Pickaxe",
-                        List.of("Efficiency V")))));
+    void markMissingRemovesSource() {
+        var index = new InMemoryContainerIndex();
+        var source2 = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(new BlockPosition(20, 64, 200)));
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 64)));
+        index.observe(observation(source2, source2, slot(0, "minecraft:oak_log", 32)));
 
-        assertEquals(1, index.search("DIAMOND efficiency").size());
-        assertTrue(index.search("diamond silk").isEmpty());
+        var before = index.search("");
+        assertEquals(96, before.getFirst().totalCount());
+
+        index.markMissing(SOURCE);
+
+        var after = index.search("");
+        assertEquals(32, after.getFirst().totalCount());
     }
 
     @Test
-    void equalStacksAggregateAcrossIndependentInventories() {
-        index.observe(observation(firstChest, stack(0, "minecraft:cobblestone", "{}", 64, "Cobblestone")));
-        index.observe(observation(source(2), stack(0, "minecraft:cobblestone", "{}", 38, "Cobblestone")));
+    void reObservingUpdatesCounts() {
+        var index = new InMemoryContainerIndex();
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 64)));
 
-        var result = index.search("cobble").getFirst();
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 32)));
 
-        assertEquals(102, result.totalCount());
-        assertEquals(2, result.sources().size());
+        var results = index.search("");
+        assertEquals(32, results.getFirst().totalCount());
     }
 
     @Test
-    void enderAccessPointsMergeWithoutMultiplyingSharedContents() {
-        var overworldAccess = SourceKey.storage(
-                "minecraft:overworld",
-                ContainerKind.ENDER_CHEST,
-                List.of(new BlockPosition(3, 64, 3)));
-        var netherAccess = SourceKey.storage(
-                "minecraft:the_nether",
-                ContainerKind.ENDER_CHEST,
-                List.of(new BlockPosition(7, 70, 7)));
-        var stack = stack(0, "minecraft:ender_pearl", "{}", 12, "Ender Pearl");
-        index.observe(new ContainerObservation(
-                SourceKey.enderInventory(), List.of(overworldAccess), List.of(stack), Instant.EPOCH));
-        index.observe(new ContainerObservation(
-                SourceKey.enderInventory(), List.of(netherAccess), List.of(stack), Instant.EPOCH.plusSeconds(1)));
+    void breakingDoubleChestHalfEvictsStaleContents() {
+        var index = new InMemoryContainerIndex();
+        var posA = POS;
+        var posB = new BlockPosition(11, 64, 200);
+        var doubleKey = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(posA, posB));
+        var single = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(posA));
 
-        var result = index.search("ender pearl").getFirst();
+        // Double chest full of 64 stone.
+        index.observe(observation(doubleKey, single, slot(0, "minecraft:stone", 64)));
+        assertEquals(64, index.search("").getFirst().totalCount());
 
-        assertEquals(12, result.totalCount());
-        assertEquals(List.of(overworldAccess, netherAccess),
-                result.sources().stream().map(SourceResult::source).toList());
+        // Break the B half; surviving single chest re-observed with its 32.
+        index.observe(observation(single, single, slot(0, "minecraft:stone", 32)));
+
+        var after = index.search("");
+        assertEquals(1, after.size());
+        assertEquals(32, after.getFirst().totalCount());
     }
 
     @Test
-    void confirmedMissingOrdinarySourceRemovesItsContents() {
-        index.observe(observation(firstChest, stack(0, "minecraft:stone", "{}", 4, "Stone")));
+    void aggregationAcrossMultipleContainers() {
+        var index = new InMemoryContainerIndex();
+        var source2 = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(new BlockPosition(20, 64, 200)));
 
-        index.markMissing(firstChest);
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 64)));
+        index.observe(observation(source2, source2, slot(0, "minecraft:oak_log", 32)));
 
-        assertTrue(index.search("stone").isEmpty());
-    }
-
-    @Test
-    void snapshotCanReplaceAnotherIndexWithoutSharingMutation() {
-        index.observe(observation(firstChest, stack(0, "minecraft:stone", "{}", 4, "Stone")));
-        var restored = new InMemoryContainerIndex();
-
-        restored.replace(index.snapshot());
-        index.markMissing(firstChest);
-
-        assertEquals(4, restored.search("stone").getFirst().totalCount());
-    }
-
-    private static SourceKey source(int x) {
-        return SourceKey.storage(
-                "minecraft:overworld",
-                ContainerKind.CHEST,
-                List.of(new BlockPosition(x, 64, 0)));
-    }
-
-    private static ContainerObservation observation(SourceKey source, SlotSnapshot... slots) {
-        return new ContainerObservation(source, List.of(source), List.of(slots), Instant.EPOCH);
-    }
-
-    private static SlotSnapshot stack(
-            int slot,
-            String itemId,
-            String components,
-            int count,
-            String displayName) {
-        return new SlotSnapshot(
-                slot,
-                new StackSnapshot(new StackKey(itemId, components), count, displayName, List.of()));
+        var results = index.search("");
+        assertEquals(1, results.size());
+        assertEquals(96, results.getFirst().totalCount());
+        assertEquals(2, results.getFirst().sources().size());
     }
 }

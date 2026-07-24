@@ -1,0 +1,33 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "25"
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Compile and the plain JUnit layer.
+      - run: ./gradlew build
+
+      # Headless server tests: real levels, block entities and inventories.
+      - run: ./gradlew runGameTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: build/libs/*.jar

@@ -7,6 +7,7 @@ import dev.smpb.containersearch.model.StackSnapshot;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.Map;
 
 public final class InMemoryContainerIndex implements ContainerIndex {
     private final Map<SourceKey, IndexedContainer> containers = new LinkedHashMap<>();
+    private final Map<SourceKey, CachedAggregate> aggregates = new HashMap<>();
     private long revision;
 
     @Override
@@ -23,6 +25,15 @@ public final class InMemoryContainerIndex implements ContainerIndex {
 
     @Override
     public void observe(ContainerObservation observation) {
+        // A block position belongs to exactly one container. Evict any stale
+        // container whose footprint overlaps this one's but has a different key
+        // (e.g. a double chest [A,B] whose half was broken, re-observed as [A]).
+        var positions = observation.contentsKey().positions();
+        if (!positions.isEmpty()) {
+            containers.keySet().removeIf(existing ->
+                    !existing.equals(observation.contentsKey())
+                            && existing.positions().stream().anyMatch(positions::contains));
+        }
         var accessSources = new LinkedHashSet<SourceKey>();
         var previous = containers.get(observation.contentsKey());
         if (observation.contentsKey().equals(SourceKey.enderInventory()) && previous != null) {
@@ -43,6 +54,7 @@ public final class InMemoryContainerIndex implements ContainerIndex {
     public void markMissing(SourceKey source) {
         var direct = containers.remove(source);
         if (direct != null) {
+            pruneAggregates();
             revision++;
             return;
         }
@@ -61,6 +73,7 @@ public final class InMemoryContainerIndex implements ContainerIndex {
                         entry.getKey(),
                         new IndexedContainer(value.contentsKey(), remaining, value.slots(), value.observedAt()));
             }
+            pruneAggregates();
             revision++;
             return;
         }
@@ -71,7 +84,7 @@ public final class InMemoryContainerIndex implements ContainerIndex {
         var query = SearchQuery.parse(input);
         var aggregated = new LinkedHashMap<StackKey, MutableItem>();
         for (var container : containers.values()) {
-            var local = aggregateContainer(container);
+            var local = aggregateOf(container);
             for (var entry : local.entrySet()) {
                 var stack = entry.getValue().example;
                 if (!query.matches(stack)) {
@@ -100,8 +113,33 @@ public final class InMemoryContainerIndex implements ContainerIndex {
         for (var container : snapshot.containers()) {
             containers.put(container.contentsKey(), container);
         }
+        aggregates.clear();
         revision++;
     }
+
+    /**
+     * Per-container slot totals, computed once per container revision.
+     *
+     * <p>Search runs on every keystroke and walks every container; containers change only when one
+     * is opened or re-scanned. Records are immutable, so the instance a cached total was computed
+     * from doubles as its validity check — no invalidation bookkeeping to get wrong.
+     */
+    private Map<StackKey, LocalItem> aggregateOf(IndexedContainer container) {
+        var cached = aggregates.get(container.contentsKey());
+        if (cached != null && cached.source() == container) {
+            return cached.items();
+        }
+        var computed = aggregateContainer(container);
+        aggregates.put(container.contentsKey(), new CachedAggregate(container, computed));
+        return computed;
+    }
+
+    /** Drops cached totals for containers that are no longer indexed. */
+    private void pruneAggregates() {
+        aggregates.keySet().retainAll(containers.keySet());
+    }
+
+    private record CachedAggregate(IndexedContainer source, Map<StackKey, LocalItem> items) {}
 
     private static Map<StackKey, LocalItem> aggregateContainer(IndexedContainer container) {
         var local = new LinkedHashMap<StackKey, LocalItem>();

@@ -39,6 +39,15 @@ final class JsonWorldStoreTest {
     }
 
     @Test
+    void twoSavesWithTheSameDisplayNameGetDifferentIndexes() {
+        // The client keys on the save directory for exactly this reason: "New World", "New World (1)".
+        var first = WorldKey.singleplayer("New World", "New World", PLAYER_ID);
+        var second = WorldKey.singleplayer("New World (1)", "New World", PLAYER_ID);
+
+        assertNotEquals(first.id(), second.id());
+    }
+
+    @Test
     void indexAndCraftRequestRoundTrip() throws Exception {
         var store = new JsonWorldStore(temp);
         var key = WorldKey.singleplayer("World A", "World A", PLAYER_ID);

@@ -5,17 +5,33 @@
   "name": "container-search",
   "description": "Remember, search, and retrieve items from containers you have opened.",
   "authors": ["SonicKarnati"],
+  "icon": "assets/container-search/icon.png",
   "license": "All-Rights-Reserved",
+  "contact": {
+    "homepage": "https://github.com/SonicKarnati/container-search",
+    "sources": "https://github.com/SonicKarnati/container-search",
+    "issues": "https://github.com/SonicKarnati/container-search/issues"
+  },
   "environment": "client",
+  "accessWidener": "container-search.accesswidener",
   "entrypoints": {
     "client": [
       "dev.smpb.containersearch.ContainerSearchClient"
+    ],
+    "modmenu": [
+      "dev.smpb.containersearch.config.ModMenuIntegration"
     ]
   },
   "depends": {
     "fabricloader": ">=0.19.3",
     "minecraft": "26.2",
     "java": ">=25",
-    "fabric-api": "*"
+    "fabric-api": "*",
+    "modmenu": ">=20.0.0",
+    "cloth-config": ">=26.0.0"
+  },
+  "recommends": {
+    "sodium": ">=0.9.0",
+    "shulkerboxtooltip": "*"
   }
 }
