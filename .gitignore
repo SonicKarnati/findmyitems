@@ -14,6 +14,7 @@ bin/
 .project
 *.DS_Store
 run/
+logs/
 hs_err_*.log
 replay_*.log
 *.hprof

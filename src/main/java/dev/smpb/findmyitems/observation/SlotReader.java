@@ -5,6 +5,7 @@ import dev.smpb.findmyitems.model.CanonicalJson;
 import dev.smpb.findmyitems.model.SlotSnapshot;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.model.StackSnapshot;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -80,7 +81,7 @@ public final class SlotReader {
     static SlotSnapshot snapshotStack(ItemStack stack, int slotIndex,
                                       Item.TooltipContext ctx, Player player) {
         var itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        var componentsJson = serializeComponents(stack.getComponentsPatch());
+        var componentsJson = serializeComponents(stack.getComponentsPatch(), registriesOf(player));
         var key = new StackKey(itemId, componentsJson);
         var count = stack.getCount();
         var displayName = stack.getHoverName().getString();
@@ -88,17 +89,41 @@ public final class SlotReader {
         return new SlotSnapshot(slotIndex, new StackSnapshot(key, count, displayName, tooltip));
     }
 
-    public static String serializeComponents(DataComponentPatch patch) {
+    /** The registries a stack's components must be encoded against, or null if there is no world yet. */
+    public static HolderLookup.Provider registriesOf(Player player) {
+        return player == null || player.level() == null ? null : player.registryAccess();
+    }
+
+    /**
+     * The identity half of a {@link StackKey}: two stacks are the same item to this mod exactly when
+     * their item id and this string both match.
+     *
+     * <p>Must be encoded against the world's registries. Enchantments, potions, trim patterns and
+     * anything else data-driven hold registry entries, and their codecs cannot encode without a
+     * {@link HolderLookup.Provider} — with bare {@code JsonOps} they throw, every time.
+     *
+     * <p>Which is why the failure path may not return {@code "{}"}, however tempting: {@code "{}"} is
+     * the key a plain, component-less stack already has. Collapsing onto it silently declares a
+     * Sharpness V sword to be the same object as an unenchanted one, and retrieval — which re-derives
+     * this key server-side to decide what to pull out of a chest — then takes every variant at once.
+     * A key that cannot be built is degraded to something unique-per-patch instead. It will not decode
+     * back into an icon, and that is a far smaller lie than merging two different items.
+     */
+    public static String serializeComponents(DataComponentPatch patch, HolderLookup.Provider registries) {
         if (patch.isEmpty()) return "{}";
         try {
-            var json = DataComponentPatch.CODEC
-                    .encodeStart(JsonOps.INSTANCE, patch)
-                    .getOrThrow();
+            var ops = registries == null
+                    ? JsonOps.INSTANCE
+                    : registries.createSerializationContext(JsonOps.INSTANCE);
+            var json = DataComponentPatch.CODEC.encodeStart(ops, patch).getOrThrow();
             return CanonicalJson.stringify(json);
         } catch (Exception e) {
-            return "{}";
+            return UNENCODABLE_PREFIX + patch;
         }
     }
+
+    /** Marks a components key that failed to encode. Not valid JSON, deliberately — it must never parse. */
+    private static final String UNENCODABLE_PREFIX = "!";
 
     static List<String> getTooltipLines(ItemStack stack,
                                         Item.TooltipContext ctx, Player player) {

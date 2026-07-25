@@ -2,18 +2,12 @@ package dev.smpb.findmyitems.config;
 
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import net.minecraft.client.Minecraft;
-
-import java.nio.file.Path;
+import dev.smpb.findmyitems.FindMyItemsClient;
 
 public final class ModMenuIntegration implements ModMenuApi {
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
-        return parent -> {
-            var configDir = Minecraft.getInstance().gameDirectory.toPath().resolve("config");
-            var configPath = configDir.resolve("findmyitems.json");
-            var config = ModConfig.load(configPath);
-            return ConfigScreen.create(parent, config, configPath);
-        };
+        // The live instance, not a fresh load: edits here have to reach the running collector.
+        return parent -> ConfigScreen.create(parent, FindMyItemsClient.config(), FindMyItemsClient.configPath());
     }
 }

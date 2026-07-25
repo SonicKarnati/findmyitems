@@ -154,7 +154,7 @@ public final class ObservationCollector {
             batch.add(rescanQueue.poll());
         }
 
-        var searchBlocks = config.searchDistanceBlocks;
+        var searchBlocks = config.searchDistanceBlocks();
         var maxDistSq = (double) searchBlocks * searchBlocks;
         var useDistanceLimit = searchBlocks > 0;
 
