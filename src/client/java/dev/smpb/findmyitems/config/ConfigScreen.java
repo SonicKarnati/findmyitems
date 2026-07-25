@@ -34,14 +34,14 @@ public final class ConfigScreen {
         general.addEntry(builder.entryBuilder()
                 .startIntSlider(
                         Component.translatable("screen.findmyitems.config.search_distance"),
-                        config.searchDistanceBlocks,
+                        config.searchDistanceChunks,
                         0,
-                        512)
-                .setDefaultValue(64)
+                        32)
+                .setDefaultValue(4)
                 .setTextGetter(value -> Component.literal(value == 0
                         ? "Unlimited"
-                        : value + " blocks"))
-                .setSaveConsumer(value -> config.searchDistanceBlocks = value)
+                        : value == 1 ? "1 chunk" : value + " chunks"))
+                .setSaveConsumer(value -> config.searchDistanceChunks = value)
                 .setTooltip(Component.translatable("screen.findmyitems.config.search_distance.tooltip"))
                 .build());
 

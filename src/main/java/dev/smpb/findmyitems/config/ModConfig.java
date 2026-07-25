@@ -10,17 +10,43 @@ public final class ModConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int rescanIntervalSeconds = 5;
-    public int searchDistanceBlocks = 64;
+    /**
+     * Rescan radius in chunks, matching the unit view and simulation distance already use — a
+     * player can compare "8 chunks" against their render distance without doing arithmetic.
+     * 0 means unlimited. The default is the 64 blocks this used to be.
+     */
+    public int searchDistanceChunks = 4;
+    /** Whether the catalog opens in grid layout. A reading preference, so it outlives the screen. */
+    public boolean gridLayout = false;
+
+    private transient Path path;
 
     public static ModConfig load(Path path) {
+        var config = read(path);
+        config.path = path;
+        return config;
+    }
+
+    private static ModConfig read(Path path) {
         if (Files.isRegularFile(path)) {
             try {
-                return GSON.fromJson(Files.readString(path), ModConfig.class);
+                var parsed = GSON.fromJson(Files.readString(path), ModConfig.class);
+                // Gson hands back null for an empty or literal-null file rather than failing.
+                if (parsed != null) return parsed;
             } catch (IOException | com.google.gson.JsonParseException e) {
                 return new ModConfig();
             }
         }
         return new ModConfig();
+    }
+
+    /** Writes back to wherever this was loaded from. No-op for a config that was never loaded. */
+    public void save() {
+        if (path != null) save(path);
+    }
+
+    public int searchDistanceBlocks() {
+        return searchDistanceChunks * 16;
     }
 
     public void save(Path path) {

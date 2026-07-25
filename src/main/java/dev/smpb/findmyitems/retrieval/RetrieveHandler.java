@@ -40,7 +40,7 @@ public final class RetrieveHandler {
             var stack = container.getItem(i);
             if (stack.isEmpty()) continue;
 
-            if (!matches(stack, itemId, componentsJson)) continue;
+            if (!matches(player, stack, itemId, componentsJson)) continue;
 
             // Offer a copy and only shrink the real stack by what landed. Splitting first and
             // growing the remainder back means briefly leaving a count-0 stack in the container.
@@ -85,14 +85,14 @@ public final class RetrieveHandler {
 
         var container = containerAt(player, pos);
         if (container == null) return 0;
-        if (!alreadyStocks(container, itemId, componentsJson)) return 0;
+        if (!alreadyStocks(player, container, itemId, componentsJson)) return 0;
 
         var inventory = player.getInventory();
         var moved = 0;
 
         for (int slot = 0; slot < inventory.getContainerSize() && moved < amount; slot++) {
             var held = inventory.getItem(slot);
-            if (held.isEmpty() || !matches(held, itemId, componentsJson)) continue;
+            if (held.isEmpty() || !matches(player, held, itemId, componentsJson)) continue;
 
             var offered = Math.min(amount - moved, held.getCount());
             var accepted = insert(container, held, offered);
@@ -128,6 +128,31 @@ public final class RetrieveHandler {
         var placed = countMatching(player, probe) - before;
 
         return offered - placed;
+    }
+
+    /**
+     * How many of {@code stack} the player's inventory could accept right now.
+     *
+     * <p>Deliberately per-item rather than a free-slot count: an inventory packed with dragon eggs
+     * still has room for more dragon eggs if a stack is part-full, and a caller that only asked
+     * "is any slot empty?" would refuse a take that would have worked perfectly.
+     *
+     * <p>Only the 36 storage slots count. Armour and the offhand are in {@code getContainerSize()}
+     * but {@link net.minecraft.world.entity.player.Inventory#add} will never place into them, so
+     * counting them promises room that no retrieval can use.
+     */
+    public static int roomFor(Player player, ItemStack stack) {
+        if (stack.isEmpty()) return 0;
+
+        var room = 0;
+        for (var slot : player.getInventory().getNonEquipmentItems()) {
+            if (slot.isEmpty()) {
+                room += stack.getMaxStackSize();
+            } else if (ItemStack.isSameItemSameComponents(slot, stack)) {
+                room += Math.max(0, slot.getMaxStackSize() - slot.getCount());
+            }
+        }
+        return room;
     }
 
     private static int countMatching(ServerPlayer player, ItemStack probe) {
@@ -186,18 +211,24 @@ public final class RetrieveHandler {
         return placed;
     }
 
-    private static boolean alreadyStocks(Container container, String itemId, String componentsJson) {
+    private static boolean alreadyStocks(Player player, Container container, String itemId, String componentsJson) {
         for (int i = 0; i < container.getContainerSize(); i++) {
             var stack = container.getItem(i);
-            if (!stack.isEmpty() && matches(stack, itemId, componentsJson)) return true;
+            if (!stack.isEmpty() && matches(player, stack, itemId, componentsJson)) return true;
         }
         return false;
     }
 
-    /** Same item and same components — a Sharpness sword is not the same kind as a plain one. */
-    private static boolean matches(ItemStack stack, String itemId, String componentsJson) {
+    /**
+     * Same item and same components — a Sharpness sword is not the same kind as a plain one.
+     *
+     * <p>The registries have to come from the player: without them the enchantment codec fails and
+     * every enchanted stack answers to the plain stack's key, so one Take empties out every variant.
+     */
+    private static boolean matches(Player player, ItemStack stack, String itemId, String componentsJson) {
         if (!BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(itemId)) return false;
-        return SlotReader.serializeComponents(stack.getComponentsPatch()).equals(componentsJson);
+        return SlotReader.serializeComponents(stack.getComponentsPatch(), SlotReader.registriesOf(player))
+                .equals(componentsJson);
     }
 
     /** Pulls up to {@code wanted} of {@code itemId} out of a stack's container contents. Returns how many moved. */
@@ -212,7 +243,7 @@ public final class RetrieveHandler {
 
         for (var inner : items) {
             if (moved >= wanted) break;
-            if (!matches(inner, itemId, componentsJson)) continue;
+            if (!matches(player, inner, itemId, componentsJson)) continue;
 
             var toTake = Math.min(wanted - moved, inner.getCount());
             var took = toTake - give(player, inner.copyWithCount(toTake));

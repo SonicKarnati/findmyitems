@@ -3,6 +3,7 @@ package dev.smpb.findmyitems.gui;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import dev.smpb.findmyitems.craft.CraftingPlanner;
+import dev.smpb.findmyitems.config.ModConfig;
 import dev.smpb.findmyitems.index.ContainerIndex;
 import dev.smpb.findmyitems.index.IndexedContainer;
 import dev.smpb.findmyitems.index.ItemResult;
@@ -95,6 +96,7 @@ public final class CatalogScreen extends Screen {
     private long cachedStockRevision = -1;
 
     private final ContainerIndex index;
+    private final ModConfig config;
     private EditBox searchField;
     private EditBox amountField;
     private RowList rowList;
@@ -103,15 +105,27 @@ public final class CatalogScreen extends Screen {
 
     private String currentQuery = "";
     private View view = View.ITEMS;
-    private Layout layout = Layout.LIST;
     private int amount = 64;
     private int resultCount;
+    private long lastSeenRevision = -1;
     private String status = "";
     private final List<ActionRegion> actionRegions = new ArrayList<>();
 
-    public CatalogScreen(ContainerIndex index) {
+    public CatalogScreen(ContainerIndex index, ModConfig config) {
         super(Component.translatable("screen.findmyitems.catalog"));
         this.index = index;
+        this.config = config;
+    }
+
+    /**
+     * List or grid, read from the config every time.
+     *
+     * <p>Not a field: the screen is rebuilt from scratch on every press of the open key, so anything
+     * kept here is forgotten the moment you close the catalog. It is a preference about how you like
+     * to read a list, which makes it config-shaped — and that also carries it across a restart.
+     */
+    private Layout layout() {
+        return config.gridLayout ? Layout.GRID : Layout.LIST;
     }
 
     // ---------------------------------------------------------------- layout
@@ -168,7 +182,7 @@ public final class CatalogScreen extends Screen {
     private void rebuildList() {
         if (rowList != null) removeWidget(rowList);
         rowList = new RowList(minecraft, listWidth(), height, listLeft(),
-                layout == Layout.GRID ? CELL_SIZE : ROW_HEIGHT);
+                layout() == Layout.GRID ? CELL_SIZE : ROW_HEIGHT);
         addRenderableWidget(rowList);
         updateResults();
     }
@@ -200,7 +214,7 @@ public final class CatalogScreen extends Screen {
 
     /** The toggle is labelled with the layout it switches to, not the one you are in. */
     private Component layoutLabel() {
-        return Component.translatable(layout == Layout.LIST
+        return Component.translatable(layout() == Layout.LIST
                 ? "screen.findmyitems.layout.grid"
                 : "screen.findmyitems.layout.list");
     }
@@ -215,7 +229,8 @@ public final class CatalogScreen extends Screen {
     }
 
     private void toggleLayout() {
-        layout = layout == Layout.LIST ? Layout.GRID : Layout.LIST;
+        config.gridLayout = !config.gridLayout;
+        config.save();
         refreshChrome();
         rebuildList();
         setFocused(searchField);
@@ -337,6 +352,22 @@ public final class CatalogScreen extends Screen {
         return false;
     }
 
+    /**
+     * Re-reads the index when it has actually changed.
+     *
+     * <p>The background rescan updates the index on schedule, but nothing used to tell an open
+     * catalog about it — results only refreshed when you retyped the search or reopened the screen,
+     * which made a 1-second rescan interval look like it was doing nothing. Guarded on the revision
+     * so a quiet tick costs one long compare rather than a full re-search.
+     */
+    @Override
+    public void tick() {
+        super.tick();
+        if (index.revision() == lastSeenRevision) return;
+        lastSeenRevision = index.revision();
+        updateResults();
+    }
+
     // ---------------------------------------------------------------- data
 
     void updateResults() {
@@ -358,7 +389,7 @@ public final class CatalogScreen extends Screen {
                     : Component.translatable("screen.findmyitems.no_results", currentQuery).getString();
             return List.of();
         }
-        return layout == Layout.LIST
+        return layout() == Layout.LIST
                 ? results.stream().<Row>map(ItemRow::new).toList()
                 : chunk(results, ItemGridRow::new);
     }
@@ -385,7 +416,7 @@ public final class CatalogScreen extends Screen {
             status = Component.translatable("screen.findmyitems.no_containers").getString();
             return List.of();
         }
-        return layout == Layout.LIST
+        return layout() == Layout.LIST
                 ? cards.stream().<Row>map(ContainerRow::new).toList()
                 : chunk(cards, ContainerGridRow::new);
     }
@@ -539,6 +570,14 @@ public final class CatalogScreen extends Screen {
         var source = nearestReachableSource(item);
         if (source == null) return;
 
+        // The grid reaches this without going past the list row's disabled button, so the guard
+        // lives here where every caller passes. A retrieval into a full inventory would open the
+        // chest, move nothing and say nothing — indistinguishable from success until you go to build.
+        if (RetrieveHandler.roomFor(player, buildStack(item.key())) == 0) {
+            player.sendOverlayMessage(Component.translatable("message.findmyitems.inventory_full"));
+            return;
+        }
+
         var pos = source.source().positions().getFirst();
         var mcPos = new BlockPos(pos.x(), pos.y(), pos.z());
         var dim = source.source().dimension();
@@ -627,6 +666,26 @@ public final class CatalogScreen extends Screen {
         }));
     }
 
+    /**
+     * What clicking Take would actually move, and why it differs from what was asked for.
+     *
+     * <p>Three numbers meet here: the amount in the box, what the nearest reachable container holds,
+     * and how much of it the inventory can still accept. The button has to promise the smallest of
+     * them — a tooltip reading "Take 55" over a chest with four chickens in it is a lie the click
+     * then exposes — and has to go dead entirely when the answer is zero, because a retrieval that
+     * moves nothing still swings the chest lid and still leaves the catalog up, which reads as
+     * success to everyone who has ever used it.
+     */
+    private record TakePlan(int count, boolean clamped, boolean inventoryFull) {}
+
+    private TakePlan planTake(SourceResult nearest, ItemStack stack) {
+        var player = Minecraft.getInstance().player;
+        var available = nearest == null ? 0 : nearest.count();
+        var room = player == null ? 0 : RetrieveHandler.roomFor(player, stack);
+        var count = Math.min(amount, Math.min(available, room));
+        return new TakePlan(count, count < amount, room == 0);
+    }
+
     /** How many of this exact item the player is carrying — the cap on what deposit can move. */
     private static int carried(ItemResult item) {
         var player = Minecraft.getInstance().player;
@@ -638,7 +697,8 @@ public final class CatalogScreen extends Screen {
             var stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
             if (!BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item.key().itemId())) continue;
-            if (!SlotReader.serializeComponents(stack.getComponentsPatch()).equals(item.key().componentsJson())) continue;
+            if (!SlotReader.serializeComponents(stack.getComponentsPatch(), SlotReader.registriesOf(player))
+                    .equals(item.key().componentsJson())) continue;
             held += stack.getCount();
         }
         return held;
@@ -731,9 +791,11 @@ public final class CatalogScreen extends Screen {
         if (!key.componentsJson().equals("{}")) {
             try {
                 var json = JsonParser.parseString(key.componentsJson());
-                var pair = DataComponentPatch.CODEC
-                        .decode(JsonOps.INSTANCE, json)
-                        .getOrThrow();
+                var level = Minecraft.getInstance().level;
+                var ops = level == null
+                        ? JsonOps.INSTANCE
+                        : level.registryAccess().createSerializationContext(JsonOps.INSTANCE);
+                var pair = DataComponentPatch.CODEC.decode(ops, json).getOrThrow();
                 stack.applyComponents(pair.getFirst());
             } catch (Exception ignored) {
             }
@@ -899,10 +961,16 @@ public final class CatalogScreen extends Screen {
                 actionRegions.add(ActionRegion.take(depositX, buttonY, () -> depositItem(item)));
             }
 
-            actionButton(graphics, takeX, buttonY, Items.HOPPER, mouseX, mouseY, reachable, reachable
-                    ? Component.translatable("screen.findmyitems.take", amount)
-                    : outOfReach);
-            actionRegions.add(ActionRegion.take(takeX, buttonY, () -> takeItem(item)));
+            var plan = planTake(nearest, stack);
+            var canTake = reachable && plan.count() > 0;
+            actionButton(graphics, takeX, buttonY, Items.HOPPER, mouseX, mouseY, canTake,
+                    !reachable ? outOfReach
+                            : plan.inventoryFull() ? Component.translatable("screen.findmyitems.take.full")
+                            : plan.clamped() ? Component.translatable("screen.findmyitems.take.max", plan.count())
+                            : Component.translatable("screen.findmyitems.take", plan.count()));
+            if (canTake) {
+                actionRegions.add(ActionRegion.take(takeX, buttonY, () -> takeItem(item)));
+            }
         }
 
         private String subtitle(SourceResult nearest) {

@@ -26,18 +26,36 @@ import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 public final class FindMyItemsClient implements ClientModInitializer {
     private static ContainerIndex sharedIndex;
+    private static ModConfig sharedConfig;
     private ContainerIndex index;
+    private KeyMapping openCatalogKey;
+    private JsonWorldStore store;
 
     /** The live index for this client. Null before {@code onInitializeClient}. Used by the client game tests. */
     public static ContainerIndex index() {
         return sharedIndex;
     }
-    private KeyMapping openCatalogKey;
-    private JsonWorldStore store;
+
+    /**
+     * The one config instance everything reads.
+     *
+     * <p>There must only ever be one. The settings screen used to load its own copy from disk, so
+     * turning the rescan interval down to a second wrote a new file that the already-running
+     * collector never re-read — the setting appeared to do nothing until the game was restarted.
+     */
+    public static ModConfig config() {
+        if (sharedConfig == null) sharedConfig = ModConfig.load(configPath());
+        return sharedConfig;
+    }
+
+    public static Path configPath() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("config").resolve("findmyitems.json");
+    }
 
     @Override
     public void onInitializeClient() {
@@ -45,10 +63,9 @@ public final class FindMyItemsClient implements ClientModInitializer {
         sharedIndex = index;
 
         var configDir = Minecraft.getInstance().gameDirectory.toPath().resolve("config");
-        var configPath = configDir.resolve("findmyitems.json");
-        var config = ModConfig.load(configPath);
+        sharedConfig = ModConfig.load(configPath());
 
-        new ObservationCollector(index, config);
+        new ObservationCollector(index, sharedConfig);
         new InventorySearchController();
         ChestHighlighter.init();
         GhostOpen.init();
@@ -137,7 +154,7 @@ public final class FindMyItemsClient implements ClientModInitializer {
         if (current instanceof CatalogScreen catalogScreen) {
             catalogScreen.onClose();
         } else if (current == null) {
-            client.gui.setScreen(new CatalogScreen(index));
+            client.gui.setScreen(new CatalogScreen(index, sharedConfig));
         }
     }
 }

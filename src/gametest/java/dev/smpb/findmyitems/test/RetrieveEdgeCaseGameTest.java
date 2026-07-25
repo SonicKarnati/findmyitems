@@ -1,15 +1,20 @@
 package dev.smpb.findmyitems.test;
 
+import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemContainerContents;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
@@ -187,7 +192,111 @@ public final class RetrieveEdgeCaseGameTest {
         helper.succeed();
     }
 
+    /**
+     * Three diamond swords — plain, Smite IV, Sharpness V — and a take for 64 of the plain one.
+     *
+     * <p>The enchanted two used to come out with it: their components key failed to encode and
+     * silently degraded to a plain stack's {@code "{}"}, so every variant answered to every key.
+     */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveTakesOnlyTheVariantItWasAskedFor(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        var registries = player.registryAccess();
+
+        var plain = new ItemStack(Items.DIAMOND_SWORD);
+        var smite = enchanted(helper, Enchantments.SMITE, 4);
+        var sharpness = enchanted(helper, Enchantments.SHARPNESS, 5);
+
+        var chest = placeChest(helper, plain);
+        chest.setItem(1, smite);
+        chest.setItem(2, sharpness);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond_sword",
+                SlotReader.serializeComponents(plain.getComponentsPatch(), registries),
+                64);
+
+        helper.assertTrue(took, "the plain sword is there and should have been taken");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND_SWORD) == 1,
+                "only the plain sword may be taken, took "
+                        + player.getInventory().countItem(Items.DIAMOND_SWORD));
+        helper.assertTrue(chest.getItem(1).getEnchantments().equals(smite.getEnchantments()),
+                "the Smite sword must still be in the chest");
+        helper.assertTrue(chest.getItem(2).getEnchantments().equals(sharpness.getEnchantments()),
+                "the Sharpness sword must still be in the chest");
+        helper.succeed();
+    }
+
+    /** Asking for the enchanted one must not drag the plain one along either. */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveFindsTheEnchantedVariantOnItsOwnKey(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        var smite = enchanted(helper, Enchantments.SMITE, 4);
+
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND_SWORD));
+        chest.setItem(1, smite);
+
+        var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
+                "minecraft:diamond_sword",
+                SlotReader.serializeComponents(smite.getComponentsPatch(), player.registryAccess()),
+                64);
+
+        helper.assertTrue(took, "the Smite sword should have been taken");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND_SWORD) == 1,
+                "exactly one sword should have moved");
+        helper.assertTrue(!chest.getItem(0).isEmpty(), "the plain sword must stay in the chest");
+        helper.succeed();
+    }
+
+    /**
+     * The gate the catalog's Take button reads. A full inventory has to report zero room, or the
+     * click goes through, moves nothing, and looks exactly like success.
+     */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void roomForIsZeroWhenEverySlotIsFullOfSomethingElse(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        fillInventory(player);
+
+        helper.assertTrue(RetrieveHandler.roomFor(player, new ItemStack(Items.BOOK)) == 0,
+                "an inventory full of stone has no room for a book");
+        helper.succeed();
+    }
+
+    /** ...but a part-filled stack of the same item is still room, which is what keeps big takes working. */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void roomForCountsPartialStacksOfTheSameItem(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        fillInventory(player);
+        player.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 62));
+
+        var room = RetrieveHandler.roomFor(player, new ItemStack(Items.DIAMOND));
+
+        helper.assertTrue(room == 2, "62 of a 64-stack leaves room for 2, reported " + room);
+        helper.succeed();
+    }
+
+    /** Armour and the offhand are in {@code getContainerSize()} but retrieval can never fill them. */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void roomForIgnoresSlotsRetrievalCannotFill(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < inventory.getNonEquipmentItems().size(); slot++) {
+            inventory.setItem(slot, new ItemStack(Items.STONE, 64));
+        }
+
+        helper.assertTrue(RetrieveHandler.roomFor(player, new ItemStack(Items.BOOK)) == 0,
+                "empty armour slots are not room a take can use");
+        helper.succeed();
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private static ItemStack enchanted(GameTestHelper helper, ResourceKey<Enchantment> enchantment, int level) {
+        var stack = new ItemStack(Items.DIAMOND_SWORD);
+        var holder = helper.getLevel().registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(enchantment);
+        stack.enchant(holder, level);
+        return stack;
+    }
 
     /** Two connected chest halves at {@link #CHEST} and {@link #FAR_HALF}. Returns the far one. */
     private static ChestBlockEntity placeDoubleChest(GameTestHelper helper) {
