@@ -1,61 +1,62 @@
 name: Bug report
-description: Something the mod does that it should not
+description: Report behaviour that does not match what the documentation describes
 labels: ["bug", "needs triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        The mod is single-player only by design — it stands down completely on multiplayer servers. That is not a bug; see the README.
+        The mod is active in single-player worlds only. It disables itself on multiplayer servers by design, so that is not a bug. See the README section "Single-player only".
   - type: textarea
     id: what-happened
     attributes:
       label: What happened
       description: What the mod did, and what you expected instead.
-      placeholder: The catalog listed 64 iron in the barrel by the door, but taking it did nothing.
+      placeholder: The catalog listed 64 iron ingots in a barrel, but retrieving them had no effect.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
       label: Steps to reproduce
-      description: From a fresh world if you can get it to happen there. If it only happens in one world, say what is unusual about it.
+      description: Steps starting from a new world where possible. If the problem occurs in only one world, describe what is different about it.
       placeholder: |
-        1. Open a double chest and put 40 diamonds in the right-hand half
-        2. Close it, press B, search "diamond"
-        3. Click the hopper button
+        1. Place a double chest and put 40 diamonds in its right half
+        2. Open and close it
+        3. Press B, search for "diamond"
+        4. Click the hopper button
     validations:
       required: true
   - type: input
     id: mod-version
     attributes:
       label: findmyitems version
-      placeholder: "0.1.0"
+      placeholder: "VERSION"
     validations:
       required: true
   - type: input
     id: versions
     attributes:
-      label: Minecraft, Fabric Loader and Fabric API versions
-      placeholder: "MC 26.2, Loader 0.19.3, API 0.154.2"
+      label: Minecraft, Fabric Loader, and Fabric API versions
+      placeholder: "Minecraft 26.2, Fabric Loader 0.19.3, Fabric API API_VERSION"
     validations:
       required: true
   - type: textarea
     id: other-mods
     attributes:
-      label: Other mods installed
-      description: The whole list if it is short, the graphics and inventory ones if it is long. Rendering bugs in particular often turn out to belong to a shader or an inventory mod.
+      label: Other installed mods
+      description: The full list if it is short. Otherwise, list rendering and inventory mods, which are the most common source of interaction with this mod.
   - type: textarea
     id: logs
     attributes:
-      label: Log
-      description: The relevant part of `logs/latest.log`, especially any stack trace. Automatically formatted as code.
+      label: Log output
+      description: Relevant lines from logs/latest.log, including any stack trace. This field is formatted as code automatically.
       render: shell
   - type: checkboxes
     id: checks
     attributes:
-      label: Before you file
+      label: Confirmation
       options:
-        - label: This happened in a single-player world
+        - label: This occurred in a single-player world
           required: true
         - label: I searched existing issues for the same problem
           required: true

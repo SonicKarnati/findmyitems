@@ -1,81 +1,127 @@
-# Contributing
+# Contributing to findmyitems
 
-Thanks for looking. This is a small mod with a deliberately small surface, so the bar for a change is "it makes the catalog more trustworthy", not "it adds a feature".
+How to report problems, request changes, and submit code to `findmyitems`.
+
+## Overview
+
+`findmyitems` is a client-side Fabric mod with a deliberately small feature surface. Changes are evaluated on whether they make the container index more accurate or more usable, rather than on whether they add functionality.
+
+Two constraints apply to every change:
+
+- **Item counts are conserved.** Any code path that moves items must not create or destroy them. This includes the case where the player's inventory is full, and the case where the player is in creative mode. Minecraft's own `Inventory.add` reports success when it has placed only part of a stack, and in creative mode it discards the remainder. `RetrieveHandler` therefore counts what actually arrived in the inventory rather than relying on that return value.
+- **The mod stays client-side and single-player.** It sends no packets that a vanilla client would not send, and requires no server-side component. Where it needs authoritative world state it uses the integrated server of a single-player world. Do not add a partial multiplayer mode; see the README for why multiplayer is excluded.
 
 ## Reporting a bug
 
-Open an issue with the **Bug report** template. It asks for the versions, the steps, and what you expected instead — those three things are what makes a report actionable, and a report without them usually ends in a week of back and forth.
+Open an issue using the **Bug report** template. It asks for:
 
-Two things worth knowing before you file:
+- What happened, and what you expected instead
+- Steps to reproduce
+- The mod version
+- The Minecraft, Fabric Loader, and Fabric API versions
+- Other installed mods
+- Relevant lines from `logs/latest.log`
 
-- **Multiplayer is not a bug.** The mod stands down entirely on servers, by design. See the README for why.
-- **A wrong count is the interesting kind of bug.** The index only knows what it has seen. If the catalog claims a chest holds something it does not, say what changed the chest between the last time you opened it and the moment the catalog lied — that is the detail that finds the cause.
+Two notes before filing:
 
-If you are running from source, `findmyitems.log` lines and the contents of `config/findmyitems/worlds/*.json` are useful attachments. That JSON is your index; it contains item names and coordinates from your world, so skim it before pasting.
+- The mod disabling itself on a multiplayer server is intended behaviour, not a bug.
+- An incorrect item count is the most useful category of report. The index stores what a container held when it was last read. If a count is wrong, describe what changed the container between that reading and the moment the count was displayed.
 
-## Asking for a feature
+If you are running from source, the index file at `config/findmyitems/worlds/ID.json` is a useful attachment. It contains item names and block coordinates from your world; review it before posting.
 
-Use the **Feature request** template. The one question it really wants answered is what you were trying to do when you wanted it — a described problem gets a better solution than a described solution.
+## Requesting a feature
 
-## Changing code
+Open an issue using the **Feature request** template. Describe the situation in your world that prompted the request, not only the feature you have in mind. A described problem allows for a wider range of solutions.
 
-1. **Branch off `main`.** Name it `fix/short-thing` or `feat/short-thing`.
-2. **Keep the diff small.** One reason per pull request. A drive-by rename in the same commit as a behaviour change makes the behaviour change unreviewable.
-3. **Leave a test behind.** Anything with a branch, a loop, or an item moving between two places gets one. Where it goes:
-   - no Minecraft needed (index, store, model) → `src/test/`, plain JUnit
-   - world, block entities, inventories → a `@GameTest` in `src/gametest/`
-   - input, screens, rendering → a step in `FindMyItemsClientGameTest`
+## Development
 
-   New `@GameTest` classes must be added to the `fabric-gametest` entrypoint in `src/gametest/resources/fabric.mod.json` or they never run.
-4. **Run the checks.** See [Testing](#testing) below. CI runs the first two layers on every pull request.
+### Requirements
 
-5. **Write the commit message for the person doing the bisect.** `fix: reach the far half of a double chest` beats `fix chest bug`. Prefixes in use: `feat:`, `fix:`, `perf:`, `docs:`, `test:`, `chore:`.
+- JDK `25` or newer
+- The included Gradle wrapper; no separate Gradle install
 
-## Testing
+### Build and run
 
-Three layers, all runnable without launching the game by hand:
+```sh
+./gradlew build      # compile, then run the JUnit tests
+./gradlew runClient  # launch a development client with the mod loaded
+```
 
-| Command | What it does | Time |
+### Testing
+
+Three layers are available, in increasing cost:
+
+| Command | Scope | Approximate time |
 | --- | --- | --- |
-| `./gradlew build` | Compile, plus plain JUnit over the index, store and model — no Minecraft. | ~1s |
-| `./gradlew runGameTest` | Headless server: real levels, block entities and player inventories. Covers retrieval and indexing a real chest. | ~10s |
-| `./gradlew runClientGameTest` | Boots the **real client**, creates a world, right-clicks a chest, presses the catalog keybind, types a query. | ~30s |
+| `./gradlew test` | JUnit over the index, store, and model types. No Minecraft classes are loaded. | 1 second |
+| `./gradlew runGameTest` | Headless server. Real levels, block entities, and player inventories. Covers retrieval and indexing. | 10 seconds |
+| `./gradlew runClientGameTest` | Launches a real client, creates a world, and drives the mod through input. | 30 seconds |
 
-The client test writes screenshots to `build/run/clientGameTest/screenshots/` — that is where you look at the UI instead of loading a world yourself. Its assertions stay on facts (index contents, which screen is open) rather than pixels, so a deliberate visual change does not fail the build.
+`./gradlew build` runs the first layer only. Continuous integration runs the first two on every pull request.
 
-## The testbed world
+`runClientGameTest` opens a game window and writes screenshots to `build/run/clientGameTest/screenshots/`. Its assertions check facts such as index contents and which screen is open, not pixels, so an intended visual change does not fail the build.
 
-In a dev run (`./gradlew runClient`), `/fmitest build` puts a row of stocked containers in front of you and `/fmitest clear` puts the world back exactly as it was. The command is registered only in a development environment, and the class is stripped from the released jar entirely.
+### Where tests belong
 
-Thirteen containers, each aimed at something specific:
+| Change type | Location |
+| --- | --- |
+| No Minecraft required: index, store, model | `src/test/`, plain JUnit |
+| World, block entities, inventories | A `@GameTest` method in `src/gametest/` |
+| A container that is not a single block entity, an inventory that cannot accept what is offered, or any case whose invariant is that no items were created or destroyed | `RetrieveEdgeCaseGameTest` |
+| Input, screens, rendering | A step in `FindMyItemsClientGameTest` |
 
-| # | Container | What it is for |
+New `@GameTest` classes must be listed in the `fabric-gametest` entrypoint of `src/gametest/resources/fabric.mod.json`. A class that is not listed there is never run, and no error is reported.
+
+### The testbed command
+
+In a development client (`./gradlew runClient`), `/fmitest build` places a row of stocked containers in front of the player, and `/fmitest clear` restores the blocks that `build` overwrote.
+
+The command is registered only when Fabric reports a development environment, and the `debug` package is excluded from the released jar by the `jar` task in `build.gradle`.
+
+`clear` restores only blocks recorded by `build` during the current session. That record is held in memory and does not survive a restart.
+
+The testbed places thirteen containers, each covering a specific case:
+
+| # | Container | Case covered |
 | --- | --- | --- |
-| 1 | Chest | Baseline: index, search, take |
-| 2 | Double chest | One container across two positions |
-| 3 | Trapped chest | Kind handling |
-| 4 | Barrel | Kind handling |
-| 5 | Shulker box block | Its own menu type (27 slots) |
-| 6 | Ender chest | Pinned to the top of the Containers view |
-| 7 | Chest of shulkers | Nested indexing and nested retrieval, one of them two levels deep |
-| 8 | Chest | Items that differ only by component: two swords both named "Bee Stinger" but enchanted Sharpness V and Smite IV, two enchanted books, a plain sword, a damaged pickaxe |
-| 9 | Chest | Partial crafting materials, so the Crafting view shows a mix of covered and missing |
-| 10 | Chest | 512 iron ingots, for pushing the amount box past 64 |
-| 11 | Chest | Stacking edge cases: beds and dragon eggs (never stack), buckets (16 empty, 1 filled), elytra, cake |
-| 12 | Empty barrel | Empty-container display |
-| 13 | Chest, 25 blocks out | Out of reach: locate works, take is greyed out |
+| 1 | Chest | Baseline indexing, search, and retrieval |
+| 2 | Double chest | One container occupying two block positions |
+| 3 | Trapped chest | Container type handling |
+| 4 | Barrel | Container type handling |
+| 5 | Shulker box block | A distinct menu type with 27 slots |
+| 6 | Ender chest | Listed first in the Containers view |
+| 7 | Chest containing shulker boxes | Nested indexing and retrieval, including one item two levels deep |
+| 8 | Chest | Items differing only by components: two identically named swords with different enchantments, two enchanted books, a plain sword, a damaged pickaxe |
+| 9 | Chest | Partial crafting materials, so the Crafting view shows both covered and missing rows |
+| 10 | Chest | 512 iron ingots, for amounts above one stack |
+| 11 | Chest | Stacking edge cases: beds and dragon eggs, which do not stack; buckets, filled and empty; elytra; cake |
+| 12 | Empty barrel | Display of an empty container |
+| 13 | Chest, 25 blocks away | Out of interaction range: highlighting works, retrieval is disabled |
 
-`clear` only ever restores blocks that `build` overwrote, and that record is in memory — it does not survive a restart.
+## Submitting a change
 
-## House style
+1. **Branch from `main`.** Use `fix/short-description` or `feat/short-description`.
+2. **Keep the change focused.** One reason per pull request. A rename combined with a behaviour change makes the behaviour change difficult to review.
+3. **Add a test.** Any change involving a branch, a loop, or items moving between two places needs one. See [Where tests belong](#where-tests-belong).
+4. **Run the checks.** `./gradlew build` and `./gradlew runGameTest` at minimum. Add `./gradlew runClientGameTest` if the change affects input, screens, or rendering.
+5. **Write a specific commit message.** For example, `fix: reach the far half of a double chest` rather than `fix chest bug`. Prefixes in use: `feat:`, `fix:`, `perf:`, `docs:`, `test:`, `chore:`.
+6. **Open a pull request.** The template asks what changed, why, which checks were run, and which test covers it.
 
-The code is commented for *why*, not *what* — if a line looks strange, the comment explains the constraint that made it strange, and if it is not strange, it has no comment. Match that. Method and class names carry the *what*.
+Do not add AI co-author trailers to commit messages or attribution lines to pull request descriptions. See `CLAUDE.md`.
 
-Two standing constraints worth knowing before you design something:
+## Code style
 
-- **Nothing is destroyed.** Every path that moves items has to conserve them, including when the inventory is full and including in creative mode, where vanilla's own `Inventory.add` will happily void the remainder. Retrieval counts what actually landed rather than trusting a return value, for exactly this reason.
-- **Client-side means client-side.** No packets the vanilla client would not send, no server-side companion mod. Where the mod needs authoritative state it uses the *integrated* server, which is why it is single-player only.
+Comments explain why a piece of code is written the way it is, not what it does. Code that needs no explanation carries no comment. Names carry the description of behaviour.
+
+Deliberate simplifications with a known limit are marked with a `ponytail:` comment that names the limit and the upgrade path, for example a single-entry memo that would need proper invalidation if datapack reloads became relevant.
 
 ## Releasing
 
-Maintainers: tag `v<version>` matching `mod_version` in `gradle.properties` and push the tag. The release workflow builds and attaches the jar.
+For maintainers:
+
+1. Update `mod_version` in `gradle.properties`.
+2. Add a dated section to `CHANGELOG.md`.
+3. Commit and push to `main`.
+4. Tag the commit `vVERSION`, matching `mod_version` exactly, and push the tag.
+
+The `release` workflow then compiles the mod, runs the JUnit and headless server tests, verifies that the tag matches `mod_version`, and creates a draft GitHub release with the jar attached. Review the draft before publishing it.

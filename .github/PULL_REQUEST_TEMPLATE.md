@@ -1,21 +1,22 @@
 ## What this changes
 
-<!-- One paragraph. What behaviour is different afterwards? -->
+<!-- One paragraph describing the behaviour that is different after this change. -->
 
 ## Why
 
-<!-- The problem, or the issue number this closes. "Closes #12" is enough if the issue says it. -->
+<!-- The problem being solved, or the issue this closes, for example "Closes #12". -->
 
-## How it was checked
+## Checks run
 
-- [ ] `./gradlew build` (compile + unit tests)
-- [ ] `./gradlew runGameTest`
-- [ ] `./gradlew runClientGameTest` — only if this touches input, screens or rendering
-- [ ] Tried it in a real world
+- [ ] `./gradlew build` — compile and JUnit tests
+- [ ] `./gradlew runGameTest` — headless server tests
+- [ ] `./gradlew runClientGameTest` — required only if this change affects input, screens, or rendering
+- [ ] Verified in a single-player world
 
-<!-- If a check does not apply, delete the line rather than leaving it unticked. -->
+<!-- Delete any line that does not apply rather than leaving it unchecked. -->
 
 ## Tests
 
-<!-- Which test covers this, and what it would catch. "No test because ..." is a valid answer for a
-     pure rename or a docs change; it is not one for anything that moves items. -->
+<!-- Which test covers this change, and what it would catch if the change regressed.
+     "No test" is acceptable for a rename or a documentation change. It is not
+     acceptable for code that moves items. -->

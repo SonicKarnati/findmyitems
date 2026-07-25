@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Question about how something works
+  - name: Question about how the mod works
     url: https://github.com/SonicKarnati/findmyitems/discussions
-    about: Ask here rather than opening an issue — questions get answered faster and stay findable.
+    about: For questions about existing behaviour, use Discussions rather than the issue tracker.

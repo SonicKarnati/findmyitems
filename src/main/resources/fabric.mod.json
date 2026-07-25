@@ -3,7 +3,7 @@
   "id": "findmyitems",
   "version": "${version}",
   "name": "findmyitems",
-  "description": "Remember, search, and retrieve items from containers you have opened.",
+  "description": "Indexes the contents of containers you have opened, and lets you search them and retrieve items from one screen. Single-player worlds only.",
   "authors": ["SonicKarnati"],
   "icon": "assets/findmyitems/icon.png",
   "license": "All-Rights-Reserved",

@@ -1,22 +1,22 @@
 name: Feature request
-description: Something the mod should do and does not
+description: Suggest functionality the mod does not currently have
 labels: ["enhancement", "needs triage"]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: What were you trying to do
-      description: The situation in the world, not the feature. A described problem usually gets a better answer than a described solution.
-      placeholder: I have eleven chests of building blocks and I can never remember which one has the deepslate.
+      label: What you were trying to do
+      description: Describe the situation in your world rather than the feature itself. A described problem allows for a wider range of solutions.
+      placeholder: I have eleven chests of building blocks and cannot remember which one holds deepslate.
     validations:
       required: true
   - type: textarea
     id: idea
     attributes:
-      label: What you had in mind
-      description: Optional. If you already have a shape for it, describe it here.
+      label: Suggested behaviour
+      description: Optional. Describe the change you have in mind, if you have a specific one.
   - type: textarea
     id: alternatives
     attributes:
-      label: What you do instead today
-      description: Including "another mod does this" — knowing what already exists is useful.
+      label: What you currently do instead
+      description: Include other mods that already do this, if any.

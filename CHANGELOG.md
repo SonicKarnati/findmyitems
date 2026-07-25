@@ -1,20 +1,46 @@
 # Changelog
 
+Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, and each released version has a matching `vVERSION` Git tag.
+
 ## 0.1.0 — 2026-07-24
 
-First release. Single-player only.
+First release. Single-player worlds only; the mod disables itself on multiplayer servers.
 
-### The catalog
+### Catalog
 
-- `B` opens a catalog of every container you have opened, in three views: Items, Containers and Crafting.
-- Search covers names, ids and tooltips, including enchantment levels in either spelling (`smite 4`, `smite iv`).
-- Take, put back and locate, straight from the list. Taking opens the container on the server for real — the lid swings and the sound plays — without putting its GUI in your way.
-- Locating draws a pulsing gold outline around the container, visible through walls.
-- Items inside shulker boxes inside chests are indexed and retrievable, four levels deep.
-- The Crafting view plans a material tree charged against what your chests already hold, listing only items that can actually be crafted.
-- A filter box on every vanilla container screen dims the slots that do not match.
+- Added a catalog screen, opened with `B`, containing three views: Items, Containers, and Crafting. `Ctrl+1`, `Ctrl+2`, and `Ctrl+3` select a view; `Cmd` replaces `Ctrl` on macOS.
+- Items and Containers can be displayed as a list or as a grid.
+- Search matches item names, item ids, and tooltip text. Enchantment levels match in both Arabic and Roman notation, for example `smite 4` and `smite iv`.
+- Items that differ only by their components are listed as separate entries.
 
-### Notes
+### Retrieval
 
-- The index is stored per save directory and per player, so two worlds sharing a name do not share a catalog.
-- On multiplayer servers the mod stands down entirely. See the README for why.
+- Added retrieval and deposit of items from containers within normal block interaction range.
+- Retrieval opens the container on the server with a normal interaction packet, so the lid animation and sound occur, and closes it afterwards. The container's own screen is not displayed.
+- Deposit is offered only for items the target container already holds.
+- Items inside shulker boxes placed in containers are indexed and retrievable, up to four levels of nesting.
+
+### Highlighting
+
+- Added a container highlight, drawn as an outline around the container's own shape for five seconds. The outline is visible through blocks.
+
+### Crafting
+
+- Added a crafting view that produces a material tree for an item and subtracts what indexed containers already hold. Covered and missing materials are distinguished.
+- The item list offered when the search field is empty contains only items that have a crafting recipe.
+
+### Container screens
+
+- Added a filter field to ordinary container screens. Typing dims slots that do not match. No items are moved.
+
+### Storage
+
+- The index is stored at `config/findmyitems/worlds/ID.json`, keyed by save directory and player UUID, so two saves with the same displayed name do not share an index.
+- Settings are stored at `config/findmyitems.json`. The rescan interval is configured in seconds and the search distance in blocks.
+
+### Known issues
+
+Tracked in the [issue tracker](https://github.com/SonicKarnati/findmyitems/issues):
+
+- The grid layout is not retained when switching views or reopening the catalog.
+- The retrieval tooltip shows the requested amount rather than the amount that will be moved when fewer are available.
