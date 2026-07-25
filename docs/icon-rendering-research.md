@@ -1,4 +1,4 @@
-# Icon rendering in container-search — research & recommendation
+# Icon rendering in findmyitems — research & recommendation
 
 **Question:** what's the best way to draw icons in this mod without pulling in extra
 dependencies? Fabric API is acceptable (and already a dependency); a third‑party GUI
@@ -42,7 +42,7 @@ vanilla stitches it into the `gui` atlas at load and lets you draw it by `Identi
 **Ship the texture** (this mod's assets live under `src/main/resources`):
 
 ```
-src/main/resources/assets/container-search/textures/gui/sprites/icon/search.png
+src/main/resources/assets/findmyitems/textures/gui/sprites/icon/search.png
 ```
 
 **Draw it:**
@@ -52,7 +52,7 @@ import com.mojang.blaze3d.pipeline.RenderPipelines;   // vanilla pipelines
 import net.minecraft.resources.Identifier;
 
 private static final Identifier SEARCH_ICON =
-        Identifier.of("container-search", "icon/search"); // path is relative to .../sprites/
+        Identifier.of("findmyitems", "icon/search"); // path is relative to .../sprites/
 
 graphics.blitSprite(RenderPipelines.GUI_TEXTURED, SEARCH_ICON, x, y, 16, 16);
 ```
@@ -101,6 +101,6 @@ The actual pixels always come from vanilla `GuiGraphicsExtractor` (`item`, `blit
 ## Recommendation
 
 1. Item icons: keep using `graphics.item(...)`.
-2. Custom UI icons: add PNGs under `assets/container-search/textures/gui/sprites/…` and
+2. Custom UI icons: add PNGs under `assets/findmyitems/textures/gui/sprites/…` and
    draw with `blitSprite`; reuse vanilla sprite ids where one already fits.
 3. Add no new dependencies — Fabric API (already present) plus vanilla covers all of it.

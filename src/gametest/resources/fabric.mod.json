@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "container-search-test",
+  "id": "findmyitems-test",
   "version": "1.0.0",
-  "name": "Container Search Test",
+  "name": "findmyitems Test",
   "environment": "*",
   "entrypoints": {
     "fabric-gametest": [
-      "dev.smpb.containersearch.test.ContainerSearchGameTest",
-      "dev.smpb.containersearch.test.RetrieveEdgeCaseGameTest"
+      "dev.smpb.findmyitems.test.FindMyItemsGameTest",
+      "dev.smpb.findmyitems.test.RetrieveEdgeCaseGameTest"
     ],
     "fabric-client-gametest": [
-      "dev.smpb.containersearch.test.ContainerSearchClientGameTest",
-      "dev.smpb.containersearch.test.TestbedCommandGameTest"
+      "dev.smpb.findmyitems.test.FindMyItemsClientGameTest",
+      "dev.smpb.findmyitems.test.TestbedCommandGameTest"
     ]
   }
 }

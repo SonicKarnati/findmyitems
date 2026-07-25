@@ -1,8 +1,8 @@
-# container-search
+# findmyitems
 
 You know you have iron somewhere. You built eleven chests and you were disciplined about it for about a week.
 
-`container-search` remembers what was in every container you have opened, lets you search all of it at once, and hands you the item without making you walk back and open the chest yourself.
+`findmyitems` remembers what was in every container you have opened, lets you search all of it at once, and hands you the item without making you walk back and open the chest yourself.
 
 Client-side Fabric mod for Minecraft Java 26.2. **Single-player worlds only** — see [below](#why-single-player-only) for why that is on purpose.
 
@@ -14,7 +14,7 @@ You need [Fabric Loader](https://fabricmc.net/use/) 0.19.3 or newer, and these m
 - [Mod Menu](https://modrinth.com/mod/modmenu)
 - [Cloth Config](https://modrinth.com/mod/cloth-config)
 
-Then drop `container-search-*.jar` from the [releases page](https://github.com/SonicKarnati/container-search/releases) in next to them.
+Then drop `findmyitems-*.jar` from the [releases page](https://github.com/SonicKarnati/findmyitems/releases) in next to them.
 
 Optional but a good pairing: [Shulker Box Tooltip](https://modrinth.com/mod/shulkerboxtooltip). This mod indexes what is inside your shulker boxes; that one shows you on hover.
 
@@ -64,7 +64,7 @@ There is also a filter box on every ordinary container screen. Type in it and no
 
 ## Settings
 
-In Mod Menu, under container-search:
+In Mod Menu, under findmyitems:
 
 | Setting | What it does |
 | --- | --- |
@@ -91,6 +91,6 @@ So on a multiplayer server the mod stands down completely: no indexing, no filte
 
 ## Something wrong?
 
-[Open an issue.](https://github.com/SonicKarnati/container-search/issues) There is a template that asks for what is actually needed to find the cause. A catalog showing the wrong count is the most useful kind of report — say what changed the chest between the last time you opened it and the moment the catalog lied.
+[Open an issue.](https://github.com/SonicKarnati/findmyitems/issues) There is a template that asks for what is actually needed to find the cause. A catalog showing the wrong count is the most useful kind of report — say what changed the chest between the last time you opened it and the moment the catalog lied.
 
 Want to change the code? [`CONTRIBUTING.md`](CONTRIBUTING.md) has the build, the tests and the conventions.

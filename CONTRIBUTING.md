@@ -11,7 +11,7 @@ Two things worth knowing before you file:
 - **Multiplayer is not a bug.** The mod stands down entirely on servers, by design. See the README for why.
 - **A wrong count is the interesting kind of bug.** The index only knows what it has seen. If the catalog claims a chest holds something it does not, say what changed the chest between the last time you opened it and the moment the catalog lied — that is the detail that finds the cause.
 
-If you are running from source, `container-search.log` lines and the contents of `config/container-search/worlds/*.json` are useful attachments. That JSON is your index; it contains item names and coordinates from your world, so skim it before pasting.
+If you are running from source, `findmyitems.log` lines and the contents of `config/findmyitems/worlds/*.json` are useful attachments. That JSON is your index; it contains item names and coordinates from your world, so skim it before pasting.
 
 ## Asking for a feature
 
@@ -24,7 +24,7 @@ Use the **Feature request** template. The one question it really wants answered 
 3. **Leave a test behind.** Anything with a branch, a loop, or an item moving between two places gets one. Where it goes:
    - no Minecraft needed (index, store, model) → `src/test/`, plain JUnit
    - world, block entities, inventories → a `@GameTest` in `src/gametest/`
-   - input, screens, rendering → a step in `ContainerSearchClientGameTest`
+   - input, screens, rendering → a step in `FindMyItemsClientGameTest`
 
    New `@GameTest` classes must be added to the `fabric-gametest` entrypoint in `src/gametest/resources/fabric.mod.json` or they never run.
 4. **Run the checks.** See [Testing](#testing) below. CI runs the first two layers on every pull request.
@@ -45,7 +45,7 @@ The client test writes screenshots to `build/run/clientGameTest/screenshots/` �
 
 ## The testbed world
 
-In a dev run (`./gradlew runClient`), `/cstest build` puts a row of stocked containers in front of you and `/cstest clear` puts the world back exactly as it was. The command is registered only in a development environment, and the class is stripped from the released jar entirely.
+In a dev run (`./gradlew runClient`), `/fmitest build` puts a row of stocked containers in front of you and `/fmitest clear` puts the world back exactly as it was. The command is registered only in a development environment, and the class is stripped from the released jar entirely.
 
 Thirteen containers, each aimed at something specific:
 

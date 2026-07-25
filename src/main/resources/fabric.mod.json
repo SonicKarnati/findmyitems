@@ -1,25 +1,25 @@
 {
   "schemaVersion": 1,
-  "id": "container-search",
+  "id": "findmyitems",
   "version": "${version}",
-  "name": "container-search",
+  "name": "findmyitems",
   "description": "Remember, search, and retrieve items from containers you have opened.",
   "authors": ["SonicKarnati"],
-  "icon": "assets/container-search/icon.png",
+  "icon": "assets/findmyitems/icon.png",
   "license": "All-Rights-Reserved",
   "contact": {
-    "homepage": "https://github.com/SonicKarnati/container-search",
-    "sources": "https://github.com/SonicKarnati/container-search",
-    "issues": "https://github.com/SonicKarnati/container-search/issues"
+    "homepage": "https://github.com/SonicKarnati/findmyitems",
+    "sources": "https://github.com/SonicKarnati/findmyitems",
+    "issues": "https://github.com/SonicKarnati/findmyitems/issues"
   },
   "environment": "client",
-  "accessWidener": "container-search.accesswidener",
+  "accessWidener": "findmyitems.accesswidener",
   "entrypoints": {
     "client": [
-      "dev.smpb.containersearch.ContainerSearchClient"
+      "dev.smpb.findmyitems.FindMyItemsClient"
     ],
     "modmenu": [
-      "dev.smpb.containersearch.config.ModMenuIntegration"
+      "dev.smpb.findmyitems.config.ModMenuIntegration"
     ]
   },
   "depends": {

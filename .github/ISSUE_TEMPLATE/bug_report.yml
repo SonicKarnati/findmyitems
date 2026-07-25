@@ -28,7 +28,7 @@ body:
   - type: input
     id: mod-version
     attributes:
-      label: container-search version
+      label: findmyitems version
       placeholder: "0.1.0"
     validations:
       required: true

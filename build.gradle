@@ -18,10 +18,10 @@ repositories {
 loom {
     splitEnvironmentSourceSets()
 
-    accessWidenerPath = file("src/main/resources/container-search.accesswidener")
+    accessWidenerPath = file("src/main/resources/findmyitems.accesswidener")
 
     mods {
-        "container-search" {
+        "findmyitems" {
             sourceSet sourceSets.main
             sourceSet sourceSets.client
         }
@@ -31,7 +31,7 @@ loom {
 fabricApi {
     configureTests {
         createSourceSet = true
-        modId = "container-search-test"
+        modId = "findmyitems-test"
         enableGameTests = true
         enableClientGameTests = true
     }
@@ -51,12 +51,12 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
-// The /cstest testbed exists to stock a dev world by hand. It is already registered only when
+// The /fmitest testbed exists to stock a dev world by hand. It is already registered only when
 // isDevelopmentEnvironment() is true, so a player could never run it — but shipping the class at
 // all invites someone to find it and wonder. It is loaded lazily inside that check, so a released
 // jar without it behaves identically.
 jar {
-    exclude 'dev/smpb/containersearch/debug/**'
+    exclude 'dev/smpb/findmyitems/debug/**'
 }
 
 processResources {
