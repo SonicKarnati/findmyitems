@@ -2,6 +2,23 @@
 
 Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, and each released version has a matching `vVERSION` Git tag.
 
+## 0.1.1 — 2026-07-25
+
+Bug fixes.
+
+### Fixed
+
+- Items that differ only by their components are keyed against the world's registries, so enchanted variants are listed and retrieved separately. Previously a component patch that could not be encoded fell back to the key of a stack with no components, which listed a plain, a Smite IV, and a Sharpness V diamond sword as one entry and retrieved all three at once.
+- Retrieval is refused when the inventory has no room for the item, rather than opening the container and moving nothing. Room is counted per item, so a partly filled stack of the same item still accepts a retrieval.
+- The take button states the amount the click will move, and marks it `(max)` when that is fewer than requested.
+- An open catalog refreshes when the index changes, instead of only when the search text changes.
+- Settings take effect immediately. The settings screen previously edited a separate copy of the configuration, so changes applied only after a restart.
+- The list and grid choice is retained across view switches, reopening the catalog, and restarts.
+
+### Changed
+
+- Search distance is configured in chunks rather than blocks. The default of 4 chunks matches the previous default of 64 blocks.
+
 ## 0.1.0 — 2026-07-24
 
 First release. Single-player worlds only; the mod disables itself on multiplayer servers.
