@@ -15,6 +15,7 @@ bin/
 *.DS_Store
 run/
 logs/
+.worktrees/
 hs_err_*.log
 replay_*.log
 *.hprof
