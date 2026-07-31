@@ -2,6 +2,10 @@
 
 Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, and each released version has a matching `vVERSION` Git tag.
 
+## 0.1.2 — 2026-07-31
+
+Release packaging now includes local Modrinth publishing with changelog validation.
+
 ## 0.1.1 — 2026-07-25
 
 Bug fixes.

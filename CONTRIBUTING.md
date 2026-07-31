@@ -125,3 +125,16 @@ For maintainers:
 4. Tag the commit `vVERSION`, matching `mod_version` exactly, and push the tag.
 
 The `release` workflow then compiles the mod, runs the JUnit and headless server tests, verifies that the tag matches `mod_version`, and creates a draft GitHub release with the jar attached. Review the draft before publishing it.
+
+### Modrinth
+
+Publishing to Modrinth is a separate step, run by hand once the release looks right:
+
+```sh
+./gradlew publishMods -PdryRun   # prints what would be uploaded, uploads nothing
+MODRINTH_TOKEN=... ./gradlew publishMods
+```
+
+The version number, the jar, and the supported Minecraft version all come from `gradle.properties`, and the release notes are the `CHANGELOG.md` section for that version — a version with no section fails the task rather than uploading blank notes. The token is a Modrinth personal access token with the `Create versions` scope; it is read from the environment and is never stored in the repository.
+
+The dependencies declared to Modrinth mirror `depends` and `recommends` in `fabric.mod.json`. Changing one without the other makes Modrinth offer a download that the loader then refuses to run.

@@ -1,6 +1,7 @@
 plugins {
     id 'net.fabricmc.fabric-loom' version "${loom_version}"
     id 'maven-publish'
+    id 'me.modmuss50.mod-publish-plugin' version '2.2.0'
 }
 
 version = project.mod_version
@@ -78,6 +79,41 @@ java {
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
+}
+
+// The release notes Modrinth shows are the ones in CHANGELOG.md: the section for the version
+// being published, from its `## VERSION` heading to the next one. A version with no section is
+// a version whose changes were never written down, so the release stops rather than ship blank
+// notes.
+def changelogSection = { String version ->
+    def match = (file('CHANGELOG.md').text =~ /(?ms)^## \Q${version}\E\b.*?\n(.*?)(?=^## |\z)/)
+    if (!match) {
+        throw new GradleException("CHANGELOG.md has no '## ${version}' section")
+    }
+    match[0][1].trim()
+}
+
+publishMods {
+    // This Loom has no remapJar task — the mod is built against Mojang mappings, so `jar` is
+    // already the jar that ships.
+    file = tasks.jar.archiveFile
+    changelog = providers.provider { changelogSection(project.version.toString()) }
+    type = STABLE
+    modLoaders.add("fabric")
+
+    // `./gradlew publishMods -PdryRun` prints what would be uploaded and uploads nothing.
+    // Run it before a real release.
+    dryRun = providers.gradleProperty("dryRun").present
+
+    modrinth {
+        projectId = "mPTBl3Fj"
+        accessToken = providers.environmentVariable("MODRINTH_TOKEN")
+        minecraftVersions.add(project.minecraft_version)
+        // These mirror `depends` and `recommends` in fabric.mod.json. If that file changes,
+        // change these too, or Modrinth will offer a download the loader then refuses to run.
+        requires("fabric-api", "modmenu", "cloth-config")
+        optional("sodium", "shulkerboxtooltip")
+    }
 }
 
 publishing {
