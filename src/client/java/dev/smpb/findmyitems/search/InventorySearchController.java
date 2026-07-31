@@ -10,6 +10,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -45,6 +46,7 @@ public final class InventorySearchController {
         if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) return;
         // The creative inventory already ships its own item search.
         if (screen instanceof CreativeModeInventoryScreen) return;
+        if (!isEnabled(screen, FindMyItemsClient.config())) return;
 
         var box = new EditBox(
                 client.font,
@@ -79,6 +81,13 @@ public final class InventorySearchController {
             }
             return true;
         });
+    }
+
+    /** Returns whether the filter bar is enabled for this eligible screen. */
+    static boolean isEnabled(Screen screen, dev.smpb.findmyitems.config.ModConfig config) {
+        if (screen instanceof CreativeModeInventoryScreen) return false;
+        if (!(screen instanceof AbstractContainerScreen<?>)) return false;
+        return screen instanceof InventoryScreen ? config.filterInventory : config.filterContainers;
     }
 
     private static void dimNonMatching(AbstractContainerScreen<?> screen, GuiGraphicsExtractor graphics, String query) {
