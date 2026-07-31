@@ -18,6 +18,14 @@ public final class ModConfig {
     public int searchDistanceChunks = 4;
     /** Whether the catalog opens in grid layout. A reading preference, so it outlives the screen. */
     public boolean gridLayout = false;
+    /**
+     * Keep the ender inventory indexed with no ender chest placed.
+     *
+     * <p>Unlike every other container, this one is player data: reading it needs no block and no
+     * loaded chunk, so the count stays true wherever you are. What it does not give you is a way
+     * in — the catalog lists that stock as out of reach until you stand at an ender chest.
+     */
+    public boolean indexEnderInventory = true;
 
     private transient Path path;
 

@@ -172,7 +172,15 @@ public final class InMemoryContainerIndex implements ContainerIndex {
                 example = candidate;
                 exampleObservedAt = container.observedAt();
             }
-            for (var source : container.accessSources()) {
+            // A remembered ender inventory outlives every block that opened it, and markMissing
+            // keeps it deliberately. Listing such a container under its own contents key keeps the
+            // row's total equal to what the row can name: counted but unlisted stock lands in the
+            // headline number and nowhere else, so the total, the container tally and the Take
+            // clamp each tell the player a different story.
+            List<SourceKey> access = container.accessSources().isEmpty()
+                    ? List.of(container.contentsKey())
+                    : container.accessSources();
+            for (var source : access) {
                 sources.add(new SourceResult(source, count, container.observedAt()));
             }
         }

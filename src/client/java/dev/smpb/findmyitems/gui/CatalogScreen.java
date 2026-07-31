@@ -676,14 +676,26 @@ public final class CatalogScreen extends Screen {
      * moves nothing still swings the chest lid and still leaves the catalog up, which reads as
      * success to everyone who has ever used it.
      */
-    private record TakePlan(int count, boolean clamped, boolean inventoryFull) {}
+    private enum Limit { NONE, ROOM, STOCK, UNREACHABLE }
 
-    private TakePlan planTake(SourceResult nearest, ItemStack stack) {
+    private record TakePlan(int count, Limit limit) {}
+
+    private TakePlan planTake(ItemResult item, SourceResult nearest, ItemStack stack) {
         var player = Minecraft.getInstance().player;
         var available = nearest == null ? 0 : nearest.count();
         var room = player == null ? 0 : RetrieveHandler.roomFor(player, stack);
         var count = Math.min(amount, Math.min(available, room));
-        return new TakePlan(count, count < amount, room == 0);
+        if (count >= amount) return new TakePlan(count, Limit.NONE);
+        if (room <= available) return new TakePlan(count, Limit.ROOM);
+        return new TakePlan(count, unreachableCount(item) > 0 ? Limit.UNREACHABLE : Limit.STOCK);
+    }
+
+    /** Stock the row counts but no position can be walked to — a remembered ender inventory. */
+    private static int unreachableCount(ItemResult item) {
+        return item.sources().stream()
+                .filter(source -> source.source().positions().isEmpty())
+                .mapToInt(source -> source.count())
+                .sum();
     }
 
     /** How many of this exact item the player is carrying — the cap on what deposit can move. */
@@ -961,16 +973,26 @@ public final class CatalogScreen extends Screen {
                 actionRegions.add(ActionRegion.take(depositX, buttonY, () -> depositItem(item)));
             }
 
-            var plan = planTake(nearest, stack);
+            var plan = planTake(item, nearest, stack);
             var canTake = reachable && plan.count() > 0;
             actionButton(graphics, takeX, buttonY, Items.HOPPER, mouseX, mouseY, canTake,
-                    !reachable ? outOfReach
-                            : plan.inventoryFull() ? Component.translatable("screen.findmyitems.take.full")
-                            : plan.clamped() ? Component.translatable("screen.findmyitems.take.max", plan.count())
-                            : Component.translatable("screen.findmyitems.take", plan.count()));
+                    !reachable ? outOfReach : takeTooltip(plan));
             if (canTake) {
                 actionRegions.add(ActionRegion.take(takeX, buttonY, () -> takeItem(item)));
             }
+        }
+
+        /** Names the reason the button promises less than the amount box asks for. */
+        private Component takeTooltip(TakePlan plan) {
+            return switch (plan.limit()) {
+                case NONE -> Component.translatable("screen.findmyitems.take", plan.count());
+                case ROOM -> plan.count() == 0
+                        ? Component.translatable("screen.findmyitems.take.full")
+                        : Component.translatable("screen.findmyitems.take.max.room", plan.count());
+                case STOCK -> Component.translatable("screen.findmyitems.take.max.stock", plan.count());
+                case UNREACHABLE -> Component.translatable(
+                        "screen.findmyitems.take.max.unreachable", plan.count(), unreachableCount(item));
+            };
         }
 
         private String subtitle(SourceResult nearest) {
@@ -978,9 +1000,16 @@ public final class CatalogScreen extends Screen {
             var where = Component.translatable(containers == 1
                     ? "screen.findmyitems.in_container"
                     : "screen.findmyitems.in_containers", containers).getString();
-            if (nearest == null) return where;
-            var pos = nearest.source().positions().getFirst();
-            return where + " · " + pos.x() + ", " + pos.y() + ", " + pos.z();
+            if (nearest != null) {
+                var pos = nearest.source().positions().getFirst();
+                where += " · " + pos.x() + ", " + pos.y() + ", " + pos.z();
+            }
+            var unreachable = unreachableCount(item);
+            if (unreachable > 0) {
+                where += " · " + Component.translatable(
+                        "screen.findmyitems.unreachable", unreachable).getString();
+            }
+            return where;
         }
 
         @Override

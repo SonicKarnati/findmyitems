@@ -45,6 +45,15 @@ public final class ConfigScreen {
                 .setTooltip(Component.translatable("screen.findmyitems.config.search_distance.tooltip"))
                 .build());
 
+        general.addEntry(builder.entryBuilder()
+                .startBooleanToggle(
+                        Component.translatable("screen.findmyitems.config.index_ender"),
+                        config.indexEnderInventory)
+                .setDefaultValue(true)
+                .setSaveConsumer(value -> config.indexEnderInventory = value)
+                .setTooltip(Component.translatable("screen.findmyitems.config.index_ender.tooltip"))
+                .build());
+
         return builder.build();
     }
 }

@@ -96,6 +96,74 @@ final class InMemoryContainerIndexTest {
         assertEquals(32, after.getFirst().totalCount());
     }
 
+    /**
+     * The ender inventory survives markMissing with no way to reach it. Its stock must still be
+     * accounted for by the row, or the total, the container tally and the Take clamp disagree.
+     */
+    @Test
+    void containerWithNoAccessSourceIsStillListedAsASource() {
+        var index = new InMemoryContainerIndex();
+        var enderPos = SourceKey.storage(DIM, ContainerKind.ENDER_CHEST, List.of(new BlockPosition(20, 64, 200)));
+
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:emerald", 5)));
+        index.observe(new ContainerObservation(
+                SourceKey.enderInventory(), List.of(enderPos), List.of(slot(10, "minecraft:emerald", 10)),
+                Instant.now()));
+
+        // The block is gone; the remembered ender contents deliberately outlive it.
+        index.markMissing(enderPos);
+
+        var result = index.search("emerald").getFirst();
+        assertEquals(15, result.totalCount());
+        assertEquals(15, result.sources().stream().mapToInt(SourceResult::count).sum());
+        assertEquals(2, result.sources().size());
+        assertEquals(10, result.sources().stream()
+                .filter(source -> source.source().positions().isEmpty())
+                .mapToInt(SourceResult::count)
+                .sum());
+    }
+
+    /**
+     * The ender inventory can be read from player data with no chest placed, so it is the one
+     * container that may be observed with no access source at all.
+     */
+    @Test
+    void enderInventoryCanBeObservedWithNoAccessSource() {
+        var index = new InMemoryContainerIndex();
+        var enderPos = SourceKey.storage(DIM, ContainerKind.ENDER_CHEST, List.of(new BlockPosition(20, 64, 200)));
+
+        index.observe(new ContainerObservation(SourceKey.enderInventory(), List.of(enderPos),
+                List.of(slot(0, "minecraft:emerald", 10)), Instant.now()));
+        index.observe(new ContainerObservation(SourceKey.enderInventory(), List.of(),
+                List.of(slot(0, "minecraft:emerald", 4)), Instant.now()));
+
+        var result = index.search("emerald").getFirst();
+        assertEquals(4, result.totalCount());
+        // Reading it from player data must not cost the way in that a placed chest gave us.
+        assertEquals(List.of(enderPos), result.sources().stream().map(SourceResult::source).toList());
+
+        assertThrows(IllegalArgumentException.class, () -> new ContainerObservation(
+                SOURCE, List.of(), List.of(slot(0, "minecraft:emerald", 1)), Instant.now()));
+    }
+
+    /** A rescan that found nothing new must not file the same ender contents under a second key. */
+    @Test
+    void rescanningAnEnderChestDoesNotDuplicateIt() {
+        var index = new InMemoryContainerIndex();
+        var enderPos = SourceKey.storage(DIM, ContainerKind.ENDER_CHEST, List.of(new BlockPosition(20, 64, 200)));
+        var opened = new ContainerObservation(
+                SourceKey.enderInventory(), List.of(enderPos), List.of(slot(10, "minecraft:emerald", 10)),
+                Instant.now());
+
+        index.observe(opened);
+        index.observe(opened);
+
+        assertEquals(1, index.snapshot().containers().size());
+        var result = index.search("emerald").getFirst();
+        assertEquals(10, result.totalCount());
+        assertEquals(1, result.sources().size());
+    }
+
     @Test
     void aggregationAcrossMultipleContainers() {
         var index = new InMemoryContainerIndex();

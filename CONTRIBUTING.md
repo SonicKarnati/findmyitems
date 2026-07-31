@@ -78,6 +78,8 @@ In a development client (`./gradlew runClient`), `/fmitest build` places a row o
 
 The command is registered only when Fabric reports a development environment, and the `debug` package is excluded from the released jar by the `jar` task in `build.gradle`.
 
+`/fmitest strand` removes the testbed's ender chest, leaving its remembered contents with no way to reach them — the one state where a container is counted but cannot be opened. `clear` puts the block back.
+
 `clear` restores only blocks recorded by `build` during the current session. That record is held in memory and does not survive a restart.
 
 The testbed places thirteen containers, each covering a specific case:
@@ -89,7 +91,7 @@ The testbed places thirteen containers, each covering a specific case:
 | 3 | Trapped chest | Container type handling |
 | 4 | Barrel | Container type handling |
 | 5 | Shulker box block | A distinct menu type with 27 slots |
-| 6 | Ender chest | Listed first in the Containers view |
+| 6 | Ender chest | Listed first in the Containers view. Stocked with 10 emeralds on the player, against 5 in #1, so one item is split between a block container and the ender inventory |
 | 7 | Chest containing shulker boxes | Nested indexing and retrieval, including one item two levels deep |
 | 8 | Chest | Items differing only by components: two identically named swords with different enchantments, two enchanted books, a plain sword, a damaged pickaxe |
 | 9 | Chest | Partial crafting materials, so the Crafting view shows both covered and missing rows |

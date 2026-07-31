@@ -38,6 +38,8 @@ import java.util.Optional;
 public final class ObservationCollector {
     /** Containers re-read per tick. Small enough that a big base costs a slice, not a stutter. */
     private static final int RESCAN_BATCH = 8;
+    /** How often the ender inventory is re-read from player data. Costs no world access. */
+    private static final int ENDER_SYNC_INTERVAL_TICKS = 100;
 
     private final ContainerIndex index;
     private final ModConfig config;
@@ -45,6 +47,7 @@ public final class ObservationCollector {
     private final Map<SourceKey, IndexedContainer> rescanTargets = new HashMap<>();
     private AbstractContainerScreen<?> pendingScreen;
     private int scanCounter;
+    private int enderCounter;
 
     public ObservationCollector(ContainerIndex index, ModConfig config) {
         this.index = index;
@@ -75,6 +78,13 @@ public final class ObservationCollector {
             queueContainerRescan();
         }
         drainRescanQueue(client);
+
+        // Deliberately on its own clock rather than the rescan interval: this costs no chunk load
+        // and no block lookup, so turning world rescanning off is no reason to stop reading it.
+        if (config.indexEnderInventory && ++enderCounter >= ENDER_SYNC_INTERVAL_TICKS) {
+            enderCounter = 0;
+            syncEnderInventory(client);
+        }
     }
 
     private void processPendingObservation(Minecraft client) {
@@ -119,6 +129,38 @@ public final class ObservationCollector {
         var observation = new ContainerObservation(contentsKey, accessSources, slots, Instant.now());
 
         index.observe(observation);
+    }
+
+    /**
+     * Re-reads the ender inventory straight off the player.
+     *
+     * <p>Every other container has to be found in the world before it can be counted, which is why
+     * an ender chest you walked away from used to go stale. This one does not: the items are on the
+     * player, so the count stays true from anywhere. It is written with no access source, because
+     * knowing what is in there is not the same as being able to reach it — the catalog shows that
+     * stock as out of reach until you are standing at an ender chest.
+     */
+    private void syncEnderInventory(Minecraft client) {
+        var server = client.getSingleplayerServer();
+        var player = client.player;
+        if (server == null || player == null) return;
+
+        var uuid = player.getUUID();
+        server.execute(() -> {
+            var serverPlayer = server.getPlayerList().getPlayer(uuid);
+            if (serverPlayer == null) return;
+
+            var slots = SlotReader.readContainerSlots(serverPlayer.getEnderChestInventory(), serverPlayer);
+            client.execute(() -> {
+                // An empty ender chest nobody has ever used is not worth an index entry; an empty
+                // one that used to hold something is, or the old contents would never clear.
+                var known = index.snapshot().containers().stream()
+                        .anyMatch(container -> container.contentsKey().equals(SourceKey.enderInventory()));
+                if (slots.isEmpty() && !known) return;
+                index.observe(new ContainerObservation(
+                        SourceKey.enderInventory(), List.of(), slots, Instant.now()));
+            });
+        });
     }
 
     /**
@@ -189,20 +231,31 @@ public final class ObservationCollector {
                         continue;
                     }
 
-                    var be = world.getBlockEntity(mcPos);
-                    if (!(be instanceof Container containerBE) || be.isRemoved()) {
-                        missingSources.add(source);
-                        continue;
-                    }
-
                     var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
                     if (serverPlayer == null) continue;
 
+                    // An ender chest's block entity is only the lid: the items live on the player,
+                    // so reading the block here finds no Container and reports the chest missing.
+                    Container containerBE;
+                    if (source.kind() == ContainerKind.ENDER_CHEST) {
+                        containerBE = serverPlayer.getEnderChestInventory();
+                    } else {
+                        var be = world.getBlockEntity(mcPos);
+                        if (!(be instanceof Container found) || be.isRemoved()) {
+                            missingSources.add(source);
+                            continue;
+                        }
+                        containerBE = found;
+                    }
+
                     var slots = SlotReader.readContainerSlots(containerBE, serverPlayer);
 
+                    // Never mint a key of our own here. A rescanned ender chest has one access
+                    // position against a contents key that has none, and a positional fallback
+                    // would file the same stock under a second container that nothing evicts.
                     var contentsKey = source.positions().size() == container.contentsKey().positions().size()
                             ? container.contentsKey()
-                            : SourceKey.storage(dim, source.kind(), source.positions());
+                            : ObservationBuilder.contentsKey(dim, source.kind(), source.positions());
                     var obs = new ContainerObservation(contentsKey, List.of(source), slots, Instant.now());
                     observations.add(obs);
                 }

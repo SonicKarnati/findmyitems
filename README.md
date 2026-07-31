@@ -128,9 +128,12 @@ Settings are available in Mod Menu, on the `findmyitems` entry. They are stored 
 | Setting | JSON key | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | Rescan interval | `rescanIntervalSeconds` | `5` | `0`–`30` | How often indexed containers near you are re-read, in seconds. `0` disables re-scanning, so entries update only when you open a container. |
-| Search distance | `searchDistanceBlocks` | `64` | `0`–`512` | How far from you a container may be and still be re-read. `0` means unlimited. Lower this if re-scanning causes a frame time increase in a large base. |
+| Search distance | `searchDistanceChunks` | `4` | `0`–`32` | How far from you a container may be and still be re-read. `0` means unlimited. Lower this if re-scanning causes a frame time increase in a large base. |
+| Index ender chest anywhere | `indexEnderInventory` | `true` | on/off | Keep your ender chest contents indexed with no ender chest placed. |
 
 Re-scanning applies only to containers whose chunks are currently loaded.
+
+The ender inventory is the exception. It is player data rather than world data, so it is read without a block placed or a chunk loaded, and its count stays true wherever you are. Knowing what is in there is not the same as being able to reach it: until you are standing at an ender chest, the catalog lists that stock as out of reach, and the take button says so.
 
 The keybind is not stored in this file. It is a standard Minecraft key mapping and is stored with your other controls.
 
