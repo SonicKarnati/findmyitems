@@ -12,6 +12,7 @@ import net.minecraft.client.gui.screens.inventory.ContainerScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.component.ItemContainerContents;
@@ -207,6 +208,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     private static void assertContainerFilterSearchesTooltips(ClientGameTestContext context) {
         var results = context.computeOnClient(mc -> {
             var sword = new ItemStack(Items.DIAMOND_SWORD);
+            sword.set(DataComponents.CUSTOM_NAME, Component.literal("Stormblade"));
             var enchantments = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
             enchantments.set(mc.level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
                     .getOrThrow(Enchantments.SMITE), 4);
@@ -218,15 +220,19 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                 return new boolean[] {
                         (boolean) matcher.invoke(null, sword, "smite"),
                         (boolean) matcher.invoke(null, sword, "iv"),
+                        (boolean) matcher.invoke(null, sword, "sharpness v"),
                         (boolean) matcher.invoke(null, sword, "sharpness"),
+                        (boolean) matcher.invoke(null, sword, "stormblade"),
                         (boolean) matcher.invoke(null, sword, "diamond_sword")
                 };
             } catch (ReflectiveOperationException e) {
                 throw new AssertionError("could not invoke container filter matcher", e);
             }
         });
-        if (!results[0] || !results[1] || results[2] || !results[3]) {
-            throw new AssertionError("container filter should match tooltip name and level, but not unrelated enchantments");
+        if (!results[0] || !results[1] || results[2] || results[3]
+                || !results[4] || !results[5]) {
+            throw new AssertionError("container filter should match display name, tooltip name and level, "
+                    + "item name and path, but not unrelated enchantments or levels");
         }
     }
 
