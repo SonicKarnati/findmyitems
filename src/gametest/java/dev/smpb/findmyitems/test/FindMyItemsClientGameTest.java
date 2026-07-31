@@ -46,6 +46,8 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     private static final int TAKE_BUTTON_SIZE = 20;
     /** {@code AbstractSelectionList.Entry.CONTENT_PADDING}, likewise not visible here. */
     private static final int ENTRY_CONTENT_PADDING = 2;
+    /** Mirrors {@code CatalogScreen.SLOT_SIZE}. */
+    private static final int SLOT_SIZE = 18;
 
     @Override
     public void runTest(ClientGameTestContext context) {
@@ -80,6 +82,16 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
 
             click(context, "screen.findmyitems.layout.grid");
             context.takeScreenshot("items-grid");
+            hoverFirstGridCell(context);
+            context.takeScreenshot("items-grid-detail-reachable");
+
+            // The emerald is the interesting cell: its stock is remembered with no chest to open.
+            context.getInput().typeChars("emer");
+            context.waitTicks(3);
+            hoverFirstGridCell(context);
+            context.takeScreenshot("items-grid-detail");
+            clearSearch(context, "emer".length());
+
             click(context, "screen.findmyitems.layout.list");
 
             click(context, "screen.findmyitems.view.containers");
@@ -416,6 +428,27 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             throw new AssertionError("gold inside the nested shulker should be indexed as "
                     + BURIED_GOLD + ", index reports " + gold);
         }
+    }
+
+    /** Puts the cursor on the first grid cell, so the detail pane has something to describe. */
+    private static void hoverFirstGridCell(ClientGameTestContext context) {
+        var cursor = context.computeOnClient(mc -> {
+            var list = mc.gui.screen().children().stream()
+                    .filter(child -> child instanceof AbstractSelectionList<?>)
+                    .map(child -> (AbstractSelectionList<?>) child)
+                    .findFirst()
+                    .orElseThrow();
+            var row = (LayoutElement) list.children().getFirst();
+            var window = mc.getWindow();
+            var cellCentreX = row.getX() + ENTRY_CONTENT_PADDING + SLOT_SIZE / 2;
+            var cellCentreY = row.getY() + row.getHeight() / 2;
+            return new double[] {
+                    cellCentreX * (double) window.getScreenWidth() / window.getGuiScaledWidth(),
+                    cellCentreY * (double) window.getScreenHeight() / window.getGuiScaledHeight(),
+            };
+        });
+        context.getInput().setCursorPos(cursor[0], cursor[1]);
+        context.waitTicks(3);
     }
 
     private static void click(ClientGameTestContext context, String translationKey) {

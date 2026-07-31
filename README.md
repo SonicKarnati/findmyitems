@@ -94,6 +94,8 @@ When you retrieve an item, the mod sends a normal interaction packet that opens 
 
 In the grid layout, left-click retrieves and right-click highlights.
 
+A cell has room for a count and nothing else, so the grid reserves a pane down its right side. Hover a cell and the pane breaks that item down: every container holding it, how many are in each, and where it is. Containers you can take from now are listed in green; ones you cannot are red, with the reason underneath — too far away, in another dimension, or an ender chest inventory with no ender chest in reach. The pane is always there and empty until you hover, so hovering never moves the cell you were about to click.
+
 ### Containers view
 
 Lists every indexed container with its type and position, nearest first. Your ender chest is placed at the top of the list and remains listed when it is empty, unless a search term is active.

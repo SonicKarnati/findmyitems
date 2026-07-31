@@ -10,9 +10,12 @@ Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, 
 - An item's total equals what its row can account for. Stock in a container with no way in is listed as its own quantity and labelled out of reach, rather than being folded into a total nothing else on the row explains.
 - The take button's tooltip names what limited it: the container's stock, the room left in your inventory, or stock that is out of reach.
 
+- An item held in a double chest is described as one container rather than two. Both halves are still offered as ways in, so the nearer one is still the one a retrieval uses.
+
 ### Added
 
 - The ender inventory is indexed with no ender chest placed, on the new `indexEnderInventory` setting. It is player data, so reading it needs no block and no loaded chunk.
+- The grid layout has a detail pane. Hovering a cell lists every container holding that item and how many are in each, marking the ones that cannot be taken from and why: too far away, in another dimension, or an ender inventory with no ender chest in reach.
 
 ## 0.1.1 — 2026-07-25
 

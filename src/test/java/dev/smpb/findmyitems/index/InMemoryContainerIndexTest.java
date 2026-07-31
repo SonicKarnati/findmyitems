@@ -164,6 +164,28 @@ final class InMemoryContainerIndexTest {
         assertEquals(1, result.sources().size());
     }
 
+    /**
+     * A double chest is two ways in to one container. Both must be offered so the nearer half can
+     * be picked, and both must name the same container so nothing counts it twice.
+     */
+    @Test
+    void bothHalvesOfADoubleChestPointAtOneContainer() {
+        var index = new InMemoryContainerIndex();
+        var posA = POS;
+        var posB = new BlockPosition(11, 64, 200);
+        var doubleKey = SourceKey.storage(DIM, ContainerKind.CHEST, List.of(posA, posB));
+
+        index.observe(new ContainerObservation(doubleKey,
+                List.of(SourceKey.storage(DIM, ContainerKind.CHEST, List.of(posA)),
+                        SourceKey.storage(DIM, ContainerKind.CHEST, List.of(posB))),
+                List.of(slot(0, "minecraft:stone", 64)), Instant.now()));
+
+        var result = index.search("").getFirst();
+        assertEquals(64, result.totalCount());
+        assertEquals(2, result.sources().size());
+        assertEquals(1, result.sources().stream().map(SourceResult::contentsKey).distinct().count());
+    }
+
     @Test
     void aggregationAcrossMultipleContainers() {
         var index = new InMemoryContainerIndex();
