@@ -3,13 +3,19 @@ package dev.smpb.findmyitems.test;
 import dev.smpb.findmyitems.FindMyItemsClient;
 import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
+import dev.smpb.findmyitems.search.InventorySearchController;
 import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
+import net.minecraft.client.gui.screens.inventory.FurnaceScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -31,6 +37,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     /** Platform + chest are built in the air so terrain generation cannot get in the way. */
     private static final BlockPos STAND = new BlockPos(0, 100, 0);
     private static final BlockPos CHEST = new BlockPos(0, 100, 2);
+    private static final BlockPos FURNACE = new BlockPos(2, 100, 2);
 
     private static final int DIAMONDS = 32;
     /** Sits inside a shulker box that sits inside the chest. */
@@ -52,7 +59,13 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             singleplayer.getClientLevel().waitForChunksRender();
 
             openChest(context);
+            assertFilterBarVisible(context, true);
             assertIndexed(context);
+            assertContainerFilterSearchesTooltips(context);
+
+            context.setScreen(() -> null);
+            openFurnace(context);
+            assertFilterBarVisible(context, false);
 
             context.setScreen(() -> null);
             context.waitTicks(5);
@@ -143,6 +156,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             }
 
             level.setBlockAndUpdate(CHEST, Blocks.CHEST.defaultBlockState());
+            level.setBlockAndUpdate(FURNACE, Blocks.FURNACE.defaultBlockState());
             if (level.getBlockEntity(CHEST) instanceof ChestBlockEntity chest) {
                 chest.setItem(0, new ItemStack(Items.DIAMOND, DIAMONDS));
                 chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
@@ -166,6 +180,22 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         // ObservationCollector indexes on the client tick after the screen is initialised.
         context.waitTicks(5);
         context.takeScreenshot("chest-opened");
+    }
+
+    private static void openFurnace(ClientGameTestContext context) {
+        context.getInput().lookAt(FURNACE);
+        context.waitTicks(2);
+        context.getInput().holdKeyFor(options -> options.keyUse, 2);
+        context.waitForScreen(FurnaceScreen.class);
+        context.waitTicks(2);
+    }
+
+    private static void assertFilterBarVisible(ClientGameTestContext context, boolean expected) {
+        var visible = context.computeOnClient(mc -> mc.gui.screen() != null
+                && mc.gui.screen().children().stream().anyMatch(child -> child instanceof net.minecraft.client.gui.components.EditBox));
+        if (visible != expected) {
+            throw new AssertionError("expected filter bar visible=" + expected + ", but was " + visible);
+        }
     }
 
     private static void assertIndexed(ClientGameTestContext context) {
@@ -196,6 +226,37 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         if (gold != BURIED_GOLD) {
             throw new AssertionError("gold inside the nested shulker should be indexed as "
                     + BURIED_GOLD + ", index reports " + gold);
+        }
+    }
+
+    private static void assertContainerFilterSearchesTooltips(ClientGameTestContext context) {
+        var results = context.computeOnClient(mc -> {
+            var sword = new ItemStack(Items.DIAMOND_SWORD);
+            sword.set(DataComponents.CUSTOM_NAME, Component.literal("Stormblade"));
+            var enchantments = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
+            enchantments.set(mc.level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                    .getOrThrow(Enchantments.SMITE), 4);
+            sword.set(DataComponents.ENCHANTMENTS, enchantments.toImmutable());
+            try {
+                var matcher = InventorySearchController.class.getDeclaredMethod(
+                        "matches", ItemStack.class, String.class);
+                matcher.setAccessible(true);
+                return new boolean[] {
+                        (boolean) matcher.invoke(null, sword, "smite"),
+                        (boolean) matcher.invoke(null, sword, "iv"),
+                        (boolean) matcher.invoke(null, sword, "sharpness v"),
+                        (boolean) matcher.invoke(null, sword, "sharpness"),
+                        (boolean) matcher.invoke(null, sword, "stormblade"),
+                        (boolean) matcher.invoke(null, sword, "diamond_sword")
+                };
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError("could not invoke container filter matcher", e);
+            }
+        });
+        if (!results[0] || !results[1] || results[2] || results[3]
+                || !results[4] || !results[5]) {
+            throw new AssertionError("container filter should match display name, tooltip name and level, "
+                    + "item name and path, but not unrelated enchantments or levels");
         }
     }
 

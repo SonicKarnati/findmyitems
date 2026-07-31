@@ -45,6 +45,24 @@ public final class ConfigScreen {
                 .setTooltip(Component.translatable("screen.findmyitems.config.search_distance.tooltip"))
                 .build());
 
+        general.addEntry(builder.entryBuilder()
+                .startBooleanToggle(
+                        Component.translatable("screen.findmyitems.config.filter_inventory"),
+                        config.filterInventory)
+                .setDefaultValue(true)
+                .setSaveConsumer(value -> config.filterInventory = value)
+                .setTooltip(Component.translatable("screen.findmyitems.config.filter_inventory.tooltip"))
+                .build());
+
+        general.addEntry(builder.entryBuilder()
+                .startBooleanToggle(
+                        Component.translatable("screen.findmyitems.config.filter_containers"),
+                        config.filterContainers)
+                .setDefaultValue(true)
+                .setSaveConsumer(value -> config.filterContainers = value)
+                .setTooltip(Component.translatable("screen.findmyitems.config.filter_containers.tooltip"))
+                .build());
+
         return builder.build();
     }
 }

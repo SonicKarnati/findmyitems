@@ -10,9 +10,14 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
+import net.minecraft.client.gui.screens.inventory.ContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.screens.inventory.ShulkerBoxScreen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 
 import java.util.Locale;
 
@@ -45,6 +50,7 @@ public final class InventorySearchController {
         if (!(screen instanceof AbstractContainerScreen<?> containerScreen)) return;
         // The creative inventory already ships its own item search.
         if (screen instanceof CreativeModeInventoryScreen) return;
+        if (!isEnabled(screen, FindMyItemsClient.config())) return;
 
         var box = new EditBox(
                 client.font,
@@ -81,6 +87,14 @@ public final class InventorySearchController {
         });
     }
 
+    /** Returns whether the filter bar is enabled for this eligible screen. */
+    static boolean isEnabled(Screen screen, dev.smpb.findmyitems.config.ModConfig config) {
+        if (screen instanceof CreativeModeInventoryScreen) return false;
+        if (screen instanceof InventoryScreen) return config.filterInventory;
+        return config.filterContainers
+                && (screen instanceof ContainerScreen || screen instanceof ShulkerBoxScreen);
+    }
+
     private static void dimNonMatching(AbstractContainerScreen<?> screen, GuiGraphicsExtractor graphics, String query) {
         var needle = query.trim().toLowerCase(Locale.ROOT);
         if (needle.isEmpty()) return;
@@ -99,8 +113,16 @@ public final class InventorySearchController {
     }
 
     private static boolean matches(ItemStack stack, String needle) {
-        if (stack.getHoverName().getString().toLowerCase(Locale.ROOT).contains(needle)) return true;
+        var client = Minecraft.getInstance();
+        var tooltipContext = client.level == null
+                ? Item.TooltipContext.EMPTY
+                : Item.TooltipContext.of(client.level);
+        var tooltip = stack.getTooltipLines(tooltipContext, client.player, TooltipFlag.NORMAL);
+        var searchable = new StringBuilder(stack.getHoverName().getString());
+        for (var line : tooltip) searchable.append('\n').append(line.getString());
+
         var id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-        return id.getPath().toLowerCase(Locale.ROOT).contains(needle);
+        searchable.append('\n').append(id);
+        return searchable.toString().toLowerCase(Locale.ROOT).contains(needle);
     }
 }
