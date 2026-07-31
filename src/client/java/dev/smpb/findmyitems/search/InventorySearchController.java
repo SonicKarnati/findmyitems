@@ -13,7 +13,9 @@ import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 
 import java.util.Locale;
 
@@ -108,8 +110,16 @@ public final class InventorySearchController {
     }
 
     private static boolean matches(ItemStack stack, String needle) {
-        if (stack.getHoverName().getString().toLowerCase(Locale.ROOT).contains(needle)) return true;
+        var client = Minecraft.getInstance();
+        var tooltipContext = client.level == null
+                ? Item.TooltipContext.EMPTY
+                : Item.TooltipContext.of(client.level);
+        var tooltip = stack.getTooltipLines(tooltipContext, client.player, TooltipFlag.NORMAL);
+        var searchable = new StringBuilder(stack.getHoverName().getString());
+        for (var line : tooltip) searchable.append('\n').append(line.getString());
+
         var id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-        return id.getPath().toLowerCase(Locale.ROOT).contains(needle);
+        searchable.append('\n').append(id);
+        return searchable.toString().toLowerCase(Locale.ROOT).contains(needle);
     }
 }

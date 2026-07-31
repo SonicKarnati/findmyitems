@@ -3,6 +3,7 @@ package dev.smpb.findmyitems.test;
 import dev.smpb.findmyitems.FindMyItemsClient;
 import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
+import dev.smpb.findmyitems.search.InventorySearchController;
 import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -10,6 +11,9 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -53,6 +57,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
 
             openChest(context);
             assertIndexed(context);
+            assertContainerFilterSearchesTooltips(context);
 
             context.setScreen(() -> null);
             context.waitTicks(5);
@@ -196,6 +201,32 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         if (gold != BURIED_GOLD) {
             throw new AssertionError("gold inside the nested shulker should be indexed as "
                     + BURIED_GOLD + ", index reports " + gold);
+        }
+    }
+
+    private static void assertContainerFilterSearchesTooltips(ClientGameTestContext context) {
+        var results = context.computeOnClient(mc -> {
+            var sword = new ItemStack(Items.DIAMOND_SWORD);
+            var enchantments = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
+            enchantments.set(mc.level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                    .getOrThrow(Enchantments.SMITE), 4);
+            sword.set(DataComponents.ENCHANTMENTS, enchantments.toImmutable());
+            try {
+                var matcher = InventorySearchController.class.getDeclaredMethod(
+                        "matches", ItemStack.class, String.class);
+                matcher.setAccessible(true);
+                return new boolean[] {
+                        (boolean) matcher.invoke(null, sword, "smite"),
+                        (boolean) matcher.invoke(null, sword, "iv"),
+                        (boolean) matcher.invoke(null, sword, "sharpness"),
+                        (boolean) matcher.invoke(null, sword, "diamond_sword")
+                };
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError("could not invoke container filter matcher", e);
+            }
+        });
+        if (!results[0] || !results[1] || results[2] || !results[3]) {
+            throw new AssertionError("container filter should match tooltip name and level, but not unrelated enchantments");
         }
     }
 
