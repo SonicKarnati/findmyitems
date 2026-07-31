@@ -447,7 +447,7 @@ public final class CatalogScreen extends Screen {
     }
 
     /** Why this container cannot be taken from right now, or null when it can. */
-    private static Component unreachableReason(SourceKey key) {
+    private Component unreachableReason(SourceKey key) {
         var player = Minecraft.getInstance().player;
         if (player == null) return Component.translatable("screen.findmyitems.detail.no_world");
         if (key.positions().isEmpty()) {
@@ -699,6 +699,7 @@ public final class CatalogScreen extends Screen {
         var itemId = item.key().itemId();
         var componentsJson = item.key().componentsJson();
         var requested = amount;
+        var reach = config.retrieveDistanceBlocks;
 
         GhostOpen.openThen(mcPos, () -> server.execute(() -> {
             var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
@@ -708,7 +709,8 @@ public final class CatalogScreen extends Screen {
             var world = server.getLevel(worldKey);
             if (world == null) return;
 
-            var success = RetrieveHandler.retrieve(serverPlayer, mcPos, dim, itemId, componentsJson, requested);
+            var success = RetrieveHandler.retrieve(
+                    serverPlayer, mcPos, dim, itemId, componentsJson, requested, reach);
             if (!success) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -755,6 +757,7 @@ public final class CatalogScreen extends Screen {
         var itemId = item.key().itemId();
         var componentsJson = item.key().componentsJson();
         var requested = amount;
+        var reach = config.retrieveDistanceBlocks;
 
         GhostOpen.openThen(mcPos, () -> server.execute(() -> {
             var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
@@ -764,7 +767,7 @@ public final class CatalogScreen extends Screen {
             var world = server.getLevel(worldKey);
             if (world == null) return;
 
-            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested);
+            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested, reach);
             if (moved == 0) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -859,17 +862,17 @@ public final class CatalogScreen extends Screen {
                 .orElse(null);
     }
 
-    private static SourceResult nearestReachableSource(ItemResult item) {
+    private SourceResult nearestReachableSource(ItemResult item) {
         var nearest = nearestSource(item);
         return nearest != null && inReach(nearest.source()) ? nearest : null;
     }
 
     /** Defers to the same reach rule the server enforces, rather than re-deriving a radius here. */
-    private static boolean inReach(SourceKey source) {
+    private boolean inReach(SourceKey source) {
         var player = Minecraft.getInstance().player;
         if (player == null || source.positions().isEmpty()) return false;
         var p = source.positions().getFirst();
-        return RetrieveHandler.inReach(player, new BlockPos(p.x(), p.y(), p.z()));
+        return RetrieveHandler.inReach(player, new BlockPos(p.x(), p.y(), p.z()), config.retrieveDistanceBlocks);
     }
 
     private static double distanceSqr(SourceKey source) {

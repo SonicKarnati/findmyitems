@@ -15,6 +15,7 @@ Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, 
 ### Added
 
 - The ender inventory is indexed with no ender chest placed, on the new `indexEnderInventory` setting. It is player data, so reading it needs no block and no loaded chunk.
+- Retrieval reach is configurable, up to 256 blocks, on the new `retrieveDistanceBlocks` setting. It defaults to your own reach, never shortens it, and still refuses a container whose chunk is not loaded.
 - The grid layout has a detail pane. Hovering a cell lists every container holding that item and how many are in each, marking the ones that cannot be taken from and why: too far away, in another dimension, or an ender inventory with no ender chest in reach.
 
 ## 0.1.1 — 2026-07-25

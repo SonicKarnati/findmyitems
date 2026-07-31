@@ -54,6 +54,8 @@
   "screen.findmyitems.config.rescan_interval.tooltip": "How often (in seconds) to re-scan nearby known chests.\n0 = disabled. Single-player only.",
   "screen.findmyitems.config.search_distance": "Search Distance",
   "screen.findmyitems.config.search_distance.tooltip": "Maximum distance (chunks) from player to re-scan chests.\n0 = unlimited. Higher values impact performance.",
+  "screen.findmyitems.config.retrieve_distance": "Retrieval Reach",
+  "screen.findmyitems.config.retrieve_distance.tooltip": "How far away a container may be and still be taken from.\n\"Normal reach\" is the range you could right-click it in.\nRaising this never shortens your reach, and chunks that are\nnot loaded still cannot be reached into.",
   "screen.findmyitems.config.index_ender": "Index Ender Chest Anywhere",
   "screen.findmyitems.config.index_ender.tooltip": "Keep your ender chest contents indexed with no ender chest placed.\nIt is player data, so it costs no chunk loading. That stock is listed\nas out of reach until you stand at an ender chest.",
   "screen.findmyitems.deposit": "Put back %d",

@@ -46,6 +46,20 @@ public final class ConfigScreen {
                 .build());
 
         general.addEntry(builder.entryBuilder()
+                .startIntSlider(
+                        Component.translatable("screen.findmyitems.config.retrieve_distance"),
+                        config.retrieveDistanceBlocks,
+                        0,
+                        256)
+                .setDefaultValue(0)
+                .setTextGetter(value -> Component.literal(value == 0
+                        ? "Normal reach"
+                        : value + " blocks"))
+                .setSaveConsumer(value -> config.retrieveDistanceBlocks = value)
+                .setTooltip(Component.translatable("screen.findmyitems.config.retrieve_distance.tooltip"))
+                .build());
+
+        general.addEntry(builder.entryBuilder()
                 .startBooleanToggle(
                         Component.translatable("screen.findmyitems.config.index_ender"),
                         config.indexEnderInventory)

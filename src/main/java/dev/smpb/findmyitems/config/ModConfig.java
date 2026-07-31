@@ -26,6 +26,14 @@ public final class ModConfig {
      * in — the catalog lists that stock as out of reach until you stand at an ender chest.
      */
     public boolean indexEnderInventory = true;
+    /**
+     * How far away, in blocks, a container may be and still be taken from. 0 keeps your own reach.
+     *
+     * <p>Off by default because it is the one setting that changes what the mod lets you do rather
+     * than what it knows. The index has always remembered chests across a whole base; this decides
+     * whether the catalog will also empty one from the other side of it.
+     */
+    public int retrieveDistanceBlocks = 0;
 
     private transient Path path;
 

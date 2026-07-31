@@ -88,6 +88,8 @@ Each row shows an item, the number held across all indexed containers, and the p
 
 Retrieval and deposit require the container to be within block interaction range: the range in which you could right-click it, plus one block of allowance. Rows outside that range show both buttons as disabled; the ender eye button still works.
 
+That range can be raised, up to 256 blocks, with the **Retrieval reach** setting. It is off by default: it is the one setting that changes what the mod lets you do rather than what it knows. A raised reach still cannot read a container in an unloaded chunk, and it never shortens the reach you already have.
+
 Deposit is intentionally limited: it is offered only when the target container already holds that exact item, including its components. The mod does not choose a destination for an item it has never seen stored.
 
 When you retrieve an item, the mod sends a normal interaction packet that opens the container on the server, moves the items, and then closes it. The container's lid animation and sound occur as they would if you opened it by hand. The container's own screen is not displayed.
@@ -132,6 +134,7 @@ Settings are available in Mod Menu, on the `findmyitems` entry. They are stored 
 | Rescan interval | `rescanIntervalSeconds` | `5` | `0`–`30` | How often indexed containers near you are re-read, in seconds. `0` disables re-scanning, so entries update only when you open a container. |
 | Search distance | `searchDistanceChunks` | `4` | `0`–`32` | How far from you a container may be and still be re-read. `0` means unlimited. Lower this if re-scanning causes a frame time increase in a large base. |
 | Index ender chest anywhere | `indexEnderInventory` | `true` | on/off | Keep your ender chest contents indexed with no ender chest placed. |
+| Retrieval reach | `retrieveDistanceBlocks` | `0` | `0`–`256` | How far away a container may be and still be taken from or deposited into. `0` keeps your own reach. Raising this never shortens it, and a container in an unloaded chunk still cannot be reached into. |
 
 Re-scanning applies only to containers whose chunks are currently loaded.
 
