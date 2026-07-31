@@ -18,6 +18,8 @@ public final class ModConfig {
     public int searchDistanceChunks = 4;
     /** Whether the catalog opens in grid layout. A reading preference, so it outlives the screen. */
     public boolean gridLayout = false;
+    public boolean filterInventory = true;
+    public boolean filterContainers = true;
 
     private transient Path path;
 

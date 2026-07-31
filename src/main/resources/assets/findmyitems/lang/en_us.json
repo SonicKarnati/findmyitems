@@ -45,6 +45,10 @@
   "screen.findmyitems.config.rescan_interval.tooltip": "How often (in seconds) to re-scan nearby known chests.\n0 = disabled. Single-player only.",
   "screen.findmyitems.config.search_distance": "Search Distance",
   "screen.findmyitems.config.search_distance.tooltip": "Maximum distance (chunks) from player to re-scan chests.\n0 = unlimited. Higher values impact performance.",
+  "screen.findmyitems.config.filter_inventory": "Filter Inventory",
+  "screen.findmyitems.config.filter_inventory.tooltip": "Show inventory items in the filter bar.",
+  "screen.findmyitems.config.filter_containers": "Filter Containers",
+  "screen.findmyitems.config.filter_containers.tooltip": "Show container items in the filter bar.",
   "screen.findmyitems.deposit": "Put back %d",
   "screen.findmyitems.deposit.none": "You are not carrying any, or this container does not stock it",
   "screen.findmyitems.footer.craft_index": "%d items · click one to break it down into materials"

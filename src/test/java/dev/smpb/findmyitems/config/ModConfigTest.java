@@ -17,6 +17,8 @@ final class ModConfigTest {
 
         assertEquals(4, config.searchDistanceChunks, "the default is the 64 blocks this used to be");
         assertEquals(64, config.searchDistanceBlocks());
+        assertTrue(config.filterInventory);
+        assertTrue(config.filterContainers);
 
         config.searchDistanceChunks = 8;
         assertEquals(128, config.searchDistanceBlocks());
@@ -41,6 +43,21 @@ final class ModConfigTest {
         config.save();
 
         assertTrue(ModConfig.load(path).gridLayout, "grid should still be grid on the next load");
+    }
+
+    @Test
+    void filterSettingsRoundTripThroughDisk(@TempDir Path dir) {
+        var path = dir.resolve("findmyitems.json");
+        var config = ModConfig.load(path);
+        config.gridLayout = true;
+        config.filterInventory = false;
+        config.filterContainers = false;
+        config.save();
+
+        var loaded = ModConfig.load(path);
+        assertTrue(loaded.gridLayout);
+        assertFalse(loaded.filterInventory);
+        assertFalse(loaded.filterContainers);
     }
 
     @Test
