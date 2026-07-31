@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
+import net.minecraft.client.gui.screens.inventory.FurnaceScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
@@ -36,6 +37,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     /** Platform + chest are built in the air so terrain generation cannot get in the way. */
     private static final BlockPos STAND = new BlockPos(0, 100, 0);
     private static final BlockPos CHEST = new BlockPos(0, 100, 2);
+    private static final BlockPos FURNACE = new BlockPos(2, 100, 2);
 
     private static final int DIAMONDS = 32;
     /** Sits inside a shulker box that sits inside the chest. */
@@ -57,8 +59,13 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             singleplayer.getClientLevel().waitForChunksRender();
 
             openChest(context);
+            assertFilterBarVisible(context, true);
             assertIndexed(context);
             assertContainerFilterSearchesTooltips(context);
+
+            context.setScreen(() -> null);
+            openFurnace(context);
+            assertFilterBarVisible(context, false);
 
             context.setScreen(() -> null);
             context.waitTicks(5);
@@ -149,6 +156,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             }
 
             level.setBlockAndUpdate(CHEST, Blocks.CHEST.defaultBlockState());
+            level.setBlockAndUpdate(FURNACE, Blocks.FURNACE.defaultBlockState());
             if (level.getBlockEntity(CHEST) instanceof ChestBlockEntity chest) {
                 chest.setItem(0, new ItemStack(Items.DIAMOND, DIAMONDS));
                 chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
@@ -172,6 +180,22 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         // ObservationCollector indexes on the client tick after the screen is initialised.
         context.waitTicks(5);
         context.takeScreenshot("chest-opened");
+    }
+
+    private static void openFurnace(ClientGameTestContext context) {
+        context.getInput().lookAt(FURNACE);
+        context.waitTicks(2);
+        context.getInput().holdKeyFor(options -> options.keyUse, 2);
+        context.waitForScreen(FurnaceScreen.class);
+        context.waitTicks(2);
+    }
+
+    private static void assertFilterBarVisible(ClientGameTestContext context, boolean expected) {
+        var visible = context.computeOnClient(mc -> mc.gui.screen() != null
+                && mc.gui.screen().children().stream().anyMatch(child -> child instanceof net.minecraft.client.gui.components.EditBox));
+        if (visible != expected) {
+            throw new AssertionError("expected filter bar visible=" + expected + ", but was " + visible);
+        }
     }
 
     private static void assertIndexed(ClientGameTestContext context) {
