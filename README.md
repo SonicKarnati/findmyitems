@@ -88,11 +88,15 @@ Each row shows an item, the number held across all indexed containers, and the p
 
 Retrieval and deposit require the container to be within block interaction range: the range in which you could right-click it, plus one block of allowance. Rows outside that range show both buttons as disabled; the ender eye button still works.
 
+That range can be raised, up to 256 blocks, with the **Retrieval reach** setting. It is off by default: it is the one setting that changes what the mod lets you do rather than what it knows. A raised reach still cannot read a container in an unloaded chunk, and it never shortens the reach you already have.
+
 Deposit is intentionally limited: it is offered only when the target container already holds that exact item, including its components. The mod does not choose a destination for an item it has never seen stored.
 
 When you retrieve an item, the mod sends a normal interaction packet that opens the container on the server, moves the items, and then closes it. The container's lid animation and sound occur as they would if you opened it by hand. The container's own screen is not displayed.
 
 In the grid layout, left-click retrieves and right-click highlights.
+
+A cell has room for a count and nothing else, so the grid reserves a pane down its right side. Hover a cell and the pane breaks that item down: every container holding it, how many are in each, and where it is. Containers you can take from now are listed in green; ones you cannot are red, with the reason underneath — too far away, in another dimension, or an ender chest inventory with no ender chest in reach. The pane is always there and empty until you hover, so hovering never moves the cell you were about to click.
 
 ### Containers view
 
@@ -128,9 +132,13 @@ Settings are available in Mod Menu, on the `findmyitems` entry. They are stored 
 | Setting | JSON key | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | Rescan interval | `rescanIntervalSeconds` | `5` | `0`–`30` | How often indexed containers near you are re-read, in seconds. `0` disables re-scanning, so entries update only when you open a container. |
-| Search distance | `searchDistanceBlocks` | `64` | `0`–`512` | How far from you a container may be and still be re-read. `0` means unlimited. Lower this if re-scanning causes a frame time increase in a large base. |
+| Search distance | `searchDistanceChunks` | `4` | `0`–`32` | How far from you a container may be and still be re-read. `0` means unlimited. Lower this if re-scanning causes a frame time increase in a large base. |
+| Index ender chest anywhere | `indexEnderInventory` | `true` | on/off | Keep your ender chest contents indexed with no ender chest placed. |
+| Retrieval reach | `retrieveDistanceBlocks` | `0` | `0`–`256` | How far away a container may be and still be taken from or deposited into. `0` keeps your own reach. Raising this never shortens it, and a container in an unloaded chunk still cannot be reached into. |
 
 Re-scanning applies only to containers whose chunks are currently loaded.
+
+The ender inventory is the exception. It is player data rather than world data, so it is read without a block placed or a chunk loaded, and its count stays true wherever you are. Knowing what is in there is not the same as being able to reach it: until you are standing at an ender chest, the catalog lists that stock as out of reach, and the take button says so.
 
 The keybind is not stored in this file. It is a standard Minecraft key mapping and is stored with your other controls.
 

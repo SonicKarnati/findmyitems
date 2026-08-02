@@ -49,6 +49,9 @@ public final class TestbedCommand {
 
     private static final Map<BlockPos, BlockState> RESTORE = new LinkedHashMap<>();
 
+    /** Where build() put the ender chest, so strand() knows which block to take away. */
+    private static BlockPos ender;
+
     private TestbedCommand() {}
 
     public static void register() {
@@ -58,6 +61,7 @@ public final class TestbedCommand {
     private static void declare(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("fmitest")
                 .then(Commands.literal("build").executes(ctx -> build(ctx.getSource())))
+                .then(Commands.literal("strand").executes(ctx -> strand(ctx.getSource())))
                 .then(Commands.literal("clear").executes(ctx -> clear(ctx.getSource()))));
     }
 
@@ -94,8 +98,14 @@ public final class TestbedCommand {
                 "4 Barrel", barrel()));
         placed.add(container(level, at(origin, right, slot++ * SPACING), Blocks.DYED_SHULKER_BOX.purple(), facing,
                 "5 Shulker block", dyes()));
-        placed.add(container(level, at(origin, right, slot++ * SPACING), Blocks.ENDER_CHEST, facing,
-                "6 Ender chest", List.of()));
+        // Stocked on the player, not the block: the ender inventory is the one container whose
+        // contents outlive it, so it is the one that can be counted and reachable from nothing.
+        // Paired with the emeralds in #1, this is issue #14's split total. /fmitest strand
+        // takes the block away to leave the remembered half unreachable.
+        var enderPos = at(origin, right, slot++ * SPACING);
+        placed.add(container(level, enderPos, Blocks.ENDER_CHEST, facing, "6 Ender chest", List.of()));
+        ender = enderPos;
+        player.getEnderChestInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
 
         placed.add(chest(level, at(origin, right, slot++ * SPACING), facing, "7 Nested shulkers", nested()));
         placed.add(chest(level, at(origin, right, slot++ * SPACING), facing, "8 Components", components(level)));
@@ -112,6 +122,22 @@ public final class TestbedCommand {
                 "Built %d test containers. #13 is %d blocks out, past retrieval reach. /fmitest clear to undo."
                         .formatted(placed.size(), FAR_AWAY)), false);
         return placed.size();
+    }
+
+    /**
+     * Removes the testbed's ender chest, leaving its remembered contents with nothing to reach
+     * them through. The block is already in the restore record, so {@code clear} puts it back.
+     */
+    private static int strand(CommandSourceStack source) {
+        if (ender == null) {
+            source.sendFailure(Component.literal("No testbed ender chest — run /fmitest build first."));
+            return 0;
+        }
+        source.getLevel().setBlockAndUpdate(ender, Blocks.AIR.defaultBlockState());
+        source.sendSuccess(() -> Component.literal(
+                "Ender chest removed. Its 10 emeralds stay indexed with no way to reach them; "
+                        + "search 'emer' after the next rescan."), false);
+        return 1;
     }
 
     private static int clear(CommandSourceStack source) {
@@ -132,6 +158,7 @@ public final class TestbedCommand {
             level.setBlockAndUpdate(pos, RESTORE.get(pos));
         }
         RESTORE.clear();
+        ender = null;
 
         source.sendSuccess(() -> Component.literal("Restored " + count + " blocks."), false);
         return count;
@@ -201,7 +228,8 @@ public final class TestbedCommand {
                 new ItemStack(Items.OAK_LOG, 32),
                 new ItemStack(Items.IRON_INGOT, 12),
                 new ItemStack(Items.COAL, 40),
-                new ItemStack(Items.TORCH, 16));
+                new ItemStack(Items.TORCH, 16),
+                new ItemStack(Items.EMERALD, 5));
     }
 
     /** Enough variety to fill both halves — check the catalog reports one container, not two. */

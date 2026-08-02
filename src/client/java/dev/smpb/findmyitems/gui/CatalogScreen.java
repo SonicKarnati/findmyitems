@@ -45,6 +45,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +68,10 @@ public final class CatalogScreen extends Screen {
     static final int LAYOUT_BUTTON_WIDTH = 52;
     static final int MAX_LIST_WIDTH = 420;
     static final int INDENT = 10;
+    /** Width of the grid's detail pane. Enough for a container name and a coordinate triple. */
+    static final int DETAIL_WIDTH = 150;
+    static final int DETAIL_PADDING = 6;
+    static final int DETAIL_LINE = 10;
 
 
     private static final Identifier BUTTON = Identifier.withDefaultNamespace("widget/button");
@@ -109,6 +114,7 @@ public final class CatalogScreen extends Screen {
     private int resultCount;
     private long lastSeenRevision = -1;
     private String status = "";
+    private ItemResult hoveredItem;
     private final List<ActionRegion> actionRegions = new ArrayList<>();
 
     public CatalogScreen(ContainerIndex index, ModConfig config) {
@@ -179,9 +185,25 @@ public final class CatalogScreen extends Screen {
         refreshChrome();
     }
 
+    /**
+     * The grid's detail pane, which the list layout does without.
+     *
+     * <p>A grid cell is an icon and a number: it has room to say <em>how many</em> and nowhere to
+     * say <em>where</em>. The list rows carry that on their subtitle; the grid needs somewhere to
+     * put it, so the pane is permanently reserved rather than popped up over the cells — a panel
+     * that appears under the cursor moves the thing you were about to click.
+     */
+    private boolean hasDetailPane() {
+        return view == View.ITEMS && layout() == Layout.GRID;
+    }
+
+    private int gridWidth() {
+        return hasDetailPane() ? listWidth() - DETAIL_WIDTH - GAP : listWidth();
+    }
+
     private void rebuildList() {
         if (rowList != null) removeWidget(rowList);
-        rowList = new RowList(minecraft, listWidth(), height, listLeft(),
+        rowList = new RowList(minecraft, gridWidth(), height, listLeft(),
                 layout() == Layout.GRID ? CELL_SIZE : ROW_HEIGHT);
         addRenderableWidget(rowList);
         updateResults();
@@ -327,7 +349,11 @@ public final class CatalogScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         actionRegions.clear();
+        // Whichever grid cell is under the cursor claims this during the list's own render below.
+        hoveredItem = null;
         super.extractRenderState(graphics, mouseX, mouseY, a);
+
+        if (hasDetailPane()) drawDetailPane(graphics);
 
         graphics.centeredText(font, title, width / 2, TITLE_Y, TEXT);
 
@@ -345,6 +371,95 @@ public final class CatalogScreen extends Screen {
                     : Component.translatable("screen.findmyitems.footer.crafting", amount);
         };
         graphics.centeredText(font, footer, width / 2, height - FOOTER_HEIGHT + 6, TEXT_DIM);
+    }
+
+    /**
+     * Draws the grid's detail pane: every container holding the hovered item, and what it holds.
+     *
+     * <p>The headline count answers "have I got any"; this answers "where, and can I get at it".
+     * Sources are grouped by container rather than listed one per access position, so a double
+     * chest is one line — two lines of 64 for one chest of 64 would be the same lie the item
+     * total used to tell.
+     */
+    private void drawDetailPane(GuiGraphicsExtractor graphics) {
+        var left = listLeft() + gridWidth() + GAP;
+        var top = LIST_Y;
+        var bottom = height - FOOTER_HEIGHT;
+        graphics.fill(left, top, left + DETAIL_WIDTH, bottom, LIST_BACKGROUND);
+        graphics.outline(left, top, DETAIL_WIDTH, bottom - top, LIST_BORDER);
+
+        var item = hoveredItem;
+        var x = left + DETAIL_PADDING;
+        var y = top + DETAIL_PADDING;
+        graphics.enableScissor(left + 1, top + 1, left + DETAIL_WIDTH - 1, bottom - 1);
+
+        if (item == null) {
+            graphics.text(font, Component.translatable("screen.findmyitems.detail.hint").getString(),
+                    x, y, TEXT_DIM);
+            graphics.disableScissor();
+            return;
+        }
+
+        graphics.text(font, item.displayName(), x, y, TEXT);
+        y += DETAIL_LINE + 2;
+        graphics.text(font, Component.translatable(
+                "screen.findmyitems.detail.total", item.totalCount()).getString(), x, y, TEXT_DIM);
+        y += DETAIL_LINE + 4;
+
+        for (var container : containerBreakdown(item)) {
+            if (y > bottom - DETAIL_LINE) break;
+            var reason = unreachableReason(container.where());
+            graphics.text(font, container.count() + " × " + kindLabel(container.where().kind()),
+                    x, y, reason == null ? TEXT_OK : TEXT_MISSING);
+            y += DETAIL_LINE;
+            graphics.text(font, positionLabel(container.where()), x + INDENT, y, TEXT_DIM);
+            y += DETAIL_LINE;
+            if (reason != null) {
+                graphics.text(font, reason.getString(), x + INDENT, y, TEXT_DISABLED);
+                y += DETAIL_LINE;
+            }
+            y += 3;
+        }
+        graphics.disableScissor();
+    }
+
+    /** One line's worth of a breakdown: a container, the nearest way in, and what it holds. */
+    private record ContainerShare(SourceKey where, int count) {}
+
+    private static List<ContainerShare> containerBreakdown(ItemResult item) {
+        var byContainer = new LinkedHashMap<SourceKey, SourceResult>();
+        for (var source : item.sources()) {
+            byContainer.merge(source.contentsKey(), source,
+                    (a, b) -> distanceSqr(a.source()) <= distanceSqr(b.source()) ? a : b);
+        }
+        return byContainer.values().stream()
+                .sorted(Comparator.comparingDouble(source -> distanceSqr(source.source())))
+                .map(source -> new ContainerShare(source.source(), source.count()))
+                .toList();
+    }
+
+    private static String positionLabel(SourceKey key) {
+        if (key.positions().isEmpty()) {
+            return Component.translatable("screen.findmyitems.anywhere").getString();
+        }
+        var p = key.positions().getFirst();
+        return p.x() + ", " + p.y() + ", " + p.z();
+    }
+
+    /** Why this container cannot be taken from right now, or null when it can. */
+    private Component unreachableReason(SourceKey key) {
+        var player = Minecraft.getInstance().player;
+        if (player == null) return Component.translatable("screen.findmyitems.detail.no_world");
+        if (key.positions().isEmpty()) {
+            return Component.translatable("screen.findmyitems.detail.remembered_ender");
+        }
+        if (!key.dimension().equals(player.level().dimension().identifier().toString())) {
+            return Component.translatable("screen.findmyitems.detail.other_dimension");
+        }
+        if (!inReach(key)) {
+            return Component.translatable("screen.findmyitems.detail.too_far", (int) Math.sqrt(distanceSqr(key)));
+        }
+        return null;
     }
 
     @Override
@@ -584,6 +699,7 @@ public final class CatalogScreen extends Screen {
         var itemId = item.key().itemId();
         var componentsJson = item.key().componentsJson();
         var requested = amount;
+        var reach = config.retrieveDistanceBlocks;
 
         GhostOpen.openThen(mcPos, () -> server.execute(() -> {
             var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
@@ -593,7 +709,8 @@ public final class CatalogScreen extends Screen {
             var world = server.getLevel(worldKey);
             if (world == null) return;
 
-            var success = RetrieveHandler.retrieve(serverPlayer, mcPos, dim, itemId, componentsJson, requested);
+            var success = RetrieveHandler.retrieve(
+                    serverPlayer, mcPos, dim, itemId, componentsJson, requested, reach);
             if (!success) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -640,6 +757,7 @@ public final class CatalogScreen extends Screen {
         var itemId = item.key().itemId();
         var componentsJson = item.key().componentsJson();
         var requested = amount;
+        var reach = config.retrieveDistanceBlocks;
 
         GhostOpen.openThen(mcPos, () -> server.execute(() -> {
             var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
@@ -649,7 +767,7 @@ public final class CatalogScreen extends Screen {
             var world = server.getLevel(worldKey);
             if (world == null) return;
 
-            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested);
+            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested, reach);
             if (moved == 0) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -676,14 +794,26 @@ public final class CatalogScreen extends Screen {
      * moves nothing still swings the chest lid and still leaves the catalog up, which reads as
      * success to everyone who has ever used it.
      */
-    private record TakePlan(int count, boolean clamped, boolean inventoryFull) {}
+    private enum Limit { NONE, ROOM, STOCK, UNREACHABLE }
 
-    private TakePlan planTake(SourceResult nearest, ItemStack stack) {
+    private record TakePlan(int count, Limit limit) {}
+
+    private TakePlan planTake(ItemResult item, SourceResult nearest, ItemStack stack) {
         var player = Minecraft.getInstance().player;
         var available = nearest == null ? 0 : nearest.count();
         var room = player == null ? 0 : RetrieveHandler.roomFor(player, stack);
         var count = Math.min(amount, Math.min(available, room));
-        return new TakePlan(count, count < amount, room == 0);
+        if (count >= amount) return new TakePlan(count, Limit.NONE);
+        if (room <= available) return new TakePlan(count, Limit.ROOM);
+        return new TakePlan(count, unreachableCount(item) > 0 ? Limit.UNREACHABLE : Limit.STOCK);
+    }
+
+    /** Stock the row counts but no position can be walked to — a remembered ender inventory. */
+    private static int unreachableCount(ItemResult item) {
+        return item.sources().stream()
+                .filter(source -> source.source().positions().isEmpty())
+                .mapToInt(source -> source.count())
+                .sum();
     }
 
     /** How many of this exact item the player is carrying — the cap on what deposit can move. */
@@ -732,17 +862,17 @@ public final class CatalogScreen extends Screen {
                 .orElse(null);
     }
 
-    private static SourceResult nearestReachableSource(ItemResult item) {
+    private SourceResult nearestReachableSource(ItemResult item) {
         var nearest = nearestSource(item);
         return nearest != null && inReach(nearest.source()) ? nearest : null;
     }
 
     /** Defers to the same reach rule the server enforces, rather than re-deriving a radius here. */
-    private static boolean inReach(SourceKey source) {
+    private boolean inReach(SourceKey source) {
         var player = Minecraft.getInstance().player;
         if (player == null || source.positions().isEmpty()) return false;
         var p = source.positions().getFirst();
-        return RetrieveHandler.inReach(player, new BlockPos(p.x(), p.y(), p.z()));
+        return RetrieveHandler.inReach(player, new BlockPos(p.x(), p.y(), p.z()), config.retrieveDistanceBlocks);
     }
 
     private static double distanceSqr(SourceKey source) {
@@ -961,26 +1091,44 @@ public final class CatalogScreen extends Screen {
                 actionRegions.add(ActionRegion.take(depositX, buttonY, () -> depositItem(item)));
             }
 
-            var plan = planTake(nearest, stack);
+            var plan = planTake(item, nearest, stack);
             var canTake = reachable && plan.count() > 0;
             actionButton(graphics, takeX, buttonY, Items.HOPPER, mouseX, mouseY, canTake,
-                    !reachable ? outOfReach
-                            : plan.inventoryFull() ? Component.translatable("screen.findmyitems.take.full")
-                            : plan.clamped() ? Component.translatable("screen.findmyitems.take.max", plan.count())
-                            : Component.translatable("screen.findmyitems.take", plan.count()));
+                    !reachable ? outOfReach : takeTooltip(plan));
             if (canTake) {
                 actionRegions.add(ActionRegion.take(takeX, buttonY, () -> takeItem(item)));
             }
         }
 
+        /** Names the reason the button promises less than the amount box asks for. */
+        private Component takeTooltip(TakePlan plan) {
+            return switch (plan.limit()) {
+                case NONE -> Component.translatable("screen.findmyitems.take", plan.count());
+                case ROOM -> plan.count() == 0
+                        ? Component.translatable("screen.findmyitems.take.full")
+                        : Component.translatable("screen.findmyitems.take.max.room", plan.count());
+                case STOCK -> Component.translatable("screen.findmyitems.take.max.stock", plan.count());
+                case UNREACHABLE -> Component.translatable(
+                        "screen.findmyitems.take.max.unreachable", plan.count(), unreachableCount(item));
+            };
+        }
+
         private String subtitle(SourceResult nearest) {
-            var containers = item.sources().size();
+            // Distinct containers, not access positions: a double chest is one chest, not two.
+            var containers = (int) item.sources().stream().map(SourceResult::contentsKey).distinct().count();
             var where = Component.translatable(containers == 1
                     ? "screen.findmyitems.in_container"
                     : "screen.findmyitems.in_containers", containers).getString();
-            if (nearest == null) return where;
-            var pos = nearest.source().positions().getFirst();
-            return where + " · " + pos.x() + ", " + pos.y() + ", " + pos.z();
+            if (nearest != null) {
+                var pos = nearest.source().positions().getFirst();
+                where += " · " + pos.x() + ", " + pos.y() + ", " + pos.z();
+            }
+            var unreachable = unreachableCount(item);
+            if (unreachable > 0) {
+                where += " · " + Component.translatable(
+                        "screen.findmyitems.unreachable", unreachable).getString();
+            }
+            return where;
         }
 
         @Override
@@ -1009,6 +1157,7 @@ public final class CatalogScreen extends Screen {
                 if (mouseX >= x && mouseX < x + SLOT_SIZE && mouseY >= y && mouseY < y + SLOT_SIZE) {
                     graphics.fill(x + 1, y + 1, x + SLOT_SIZE - 1, y + SLOT_SIZE - 1, CELL_HOVER);
                     graphics.setTooltipForNextFrame(font, stack, mouseX, mouseY);
+                    hoveredItem = item;
                 }
                 actionRegions.add(ActionRegion.grid(x, y, SLOT_SIZE,
                         () -> takeItem(item), () -> locateItem(item)));

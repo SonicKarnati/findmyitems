@@ -289,6 +289,37 @@ public final class RetrieveEdgeCaseGameTest {
         helper.succeed();
     }
 
+    /**
+     * A configured reach opens a chest your arm cannot, and only when it is configured.
+     *
+     * <p>The two halves are one test on purpose: a reach setting that quietly did nothing and one
+     * that quietly applied to everybody look identical from either assertion alone.
+     */
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveHonoursTheConfiguredReach(GameTestHelper helper) {
+        helper.setBlock(CHEST, Blocks.CHEST);
+        helper.getBlockEntity(CHEST, ChestBlockEntity.class).setItem(0, new ItemStack(Items.DIAMOND, 12));
+        var player = playerNextToChest(helper);
+        var pos = helper.absolutePos(CHEST);
+        player.setPos(pos.getX() + 40.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+
+        var refused = RetrieveHandler.retrieve(player, pos, dimension(helper), "minecraft:diamond", "{}", 12);
+        helper.assertTrue(!refused, "40 blocks is out of arm's reach; the default must refuse it");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 0,
+                "a refused retrieval must move nothing");
+
+        var took = RetrieveHandler.retrieve(player, pos, dimension(helper), "minecraft:diamond", "{}", 12, 64);
+        helper.assertTrue(took, "a 64 block reach covers a chest 40 blocks away");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 12,
+                "player should hold 12 diamonds, holds " + player.getInventory().countItem(Items.DIAMOND));
+
+        // The setting raises a ceiling; it never lowers one.
+        player.setPos(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+        helper.assertTrue(RetrieveHandler.inReach(player, pos, 1),
+                "a reach of 1 must not take away the chest you are standing on");
+        helper.succeed();
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static ItemStack enchanted(GameTestHelper helper, ResourceKey<Enchantment> enchantment, int level) {

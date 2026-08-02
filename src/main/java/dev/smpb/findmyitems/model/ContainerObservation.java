@@ -15,7 +15,9 @@ public record ContainerObservation(
         accessSources = List.copyOf(accessSources);
         slots = List.copyOf(slots);
         Objects.requireNonNull(observedAt, "observedAt");
-        if (accessSources.isEmpty()) {
+        // The ender inventory is the exception: it is player data, so it can be read with no block
+        // placed and no chunk loaded. Every other container is only ever seen through one.
+        if (accessSources.isEmpty() && !contentsKey.equals(SourceKey.enderInventory())) {
             throw new IllegalArgumentException("at least one access source is required");
         }
         var indexes = new HashSet<Integer>();

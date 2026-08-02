@@ -2,6 +2,22 @@
 
 Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, and each released version has a matching `vVERSION` Git tag.
 
+## Unreleased
+
+### Fixed
+
+- An ender chest stays indexed as reachable while its block is standing. A re-scan read the block entity, which holds only the lid — an ender chest's items live on the player — and took that for a missing chest, so simply standing nearby long enough left the contents counted in the item total while the container count, the coordinates and the take amount all described a different chest.
+- An item's total equals what its row can account for. Stock in a container with no way in is listed as its own quantity and labelled out of reach, rather than being folded into a total nothing else on the row explains.
+- The take button's tooltip names what limited it: the container's stock, the room left in your inventory, or stock that is out of reach.
+
+- An item held in a double chest is described as one container rather than two. Both halves are still offered as ways in, so the nearer one is still the one a retrieval uses.
+
+### Added
+
+- The ender inventory is indexed with no ender chest placed, on the new `indexEnderInventory` setting. It is player data, so reading it needs no block and no loaded chunk.
+- Retrieval reach is configurable, up to 256 blocks, on the new `retrieveDistanceBlocks` setting. It defaults to your own reach, never shortens it, and still refuses a container whose chunk is not loaded.
+- The grid layout has a detail pane. Hovering a cell lists every container holding that item and how many are in each, marking the ones that cannot be taken from and why: too far away, in another dimension, or an ender inventory with no ender chest in reach.
+
 ## 0.1.2 — 2026-07-31
 
 Release packaging now includes local Modrinth publishing with changelog validation.

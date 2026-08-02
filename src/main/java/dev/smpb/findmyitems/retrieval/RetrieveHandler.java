@@ -11,6 +11,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EnderChestBlock;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 
@@ -30,7 +31,19 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        if (!inReach(player, pos)) return false;
+        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, 0);
+    }
+
+    public static boolean retrieve(
+            ServerPlayer player,
+            BlockPos pos,
+            String dimensionId,
+            String itemId,
+            String componentsJson,
+            int amount,
+            int maxReachBlocks
+    ) {
+        if (!inReach(player, pos, maxReachBlocks)) return false;
 
         var container = containerAt(player, pos);
         if (container == null) return false;
@@ -81,7 +94,18 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        if (!inReach(player, pos)) return 0;
+        return deposit(player, pos, itemId, componentsJson, amount, 0);
+    }
+
+    public static int deposit(
+            ServerPlayer player,
+            BlockPos pos,
+            String itemId,
+            String componentsJson,
+            int amount,
+            int maxReachBlocks
+    ) {
+        if (!inReach(player, pos, maxReachBlocks)) return 0;
 
         var container = containerAt(player, pos);
         if (container == null) return 0;
@@ -176,6 +200,9 @@ public final class RetrieveHandler {
      */
     private static Container containerAt(ServerPlayer player, BlockPos pos) {
         var world = player.level();
+        // Asked first, and only because retrieval reach is configurable: reading a block state is
+        // what forces a chunk to load, so a raised reach would otherwise generate terrain on click.
+        if (!world.isLoaded(pos)) return null;
         var state = world.getBlockState(pos);
         var block = state.getBlock();
 
@@ -274,7 +301,22 @@ public final class RetrieveHandler {
      * click is never refused by the catalog.
      */
     public static boolean inReach(Player player, BlockPos pos) {
-        return player.isWithinBlockInteractionRange(pos, REACH_PADDING);
+        return inReach(player, pos, 0);
+    }
+
+    /**
+     * Vanilla reach, or a configured radius when that is further.
+     *
+     * <p>Never narrower than the arm you already have: the setting raises the ceiling, so a small
+     * value cannot take away a chest you could plainly click. Measured eye to block centre, which
+     * is a blunter rule than vanilla's box test — at these distances a half-block either way is
+     * not what anyone is asking about.
+     */
+    public static boolean inReach(Player player, BlockPos pos, int maxReachBlocks) {
+        if (player.isWithinBlockInteractionRange(pos, REACH_PADDING)) return true;
+        if (maxReachBlocks <= 0) return false;
+        return player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos))
+                <= (double) maxReachBlocks * maxReachBlocks;
     }
 
     public static int defaultAmount(String itemId) {
