@@ -125,6 +125,31 @@ public final class FindMyItemsGameTest {
     }
 
     @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void nestedSlotReaderRetainsCompletePathAndOutermostHolder(GameTestHelper helper) {
+        var gold = new ItemStack(Items.GOLD_INGOT, 20);
+        var inner = new ItemStack(Items.SHULKER_BOX);
+        inner.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(gold)));
+        var outer = new ItemStack(Items.SHULKER_BOX);
+        outer.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(inner)));
+        var chest = placeChest(helper, outer);
+        var player = playerNextToChest(helper);
+
+        var slots = SlotReader.readContainerSlots(chest, player);
+        var goldSnapshot = slots.stream()
+                .filter(slot -> slot.stack().key().itemId().equals("minecraft:gold_ingot"))
+                .findFirst()
+                .orElseThrow()
+                .stack();
+
+        helper.assertTrue(goldSnapshot.provenance().slots().equals(List.of(0, 10_000, 10_001)),
+                "nested gold path should include every holder slot: "
+                        + goldSnapshot.provenance().slots());
+        helper.assertTrue(goldSnapshot.provenance().holderSlot() == 0,
+                "nested gold should retain the outermost holder slot");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
     public void depositPutsCarriedItemsBackWhereTheyLive(GameTestHelper helper) {
         var chest = placeChest(helper, new ItemStack(Items.OAK_LOG, 10));
         var player = playerNextToChest(helper);

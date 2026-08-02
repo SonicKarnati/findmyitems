@@ -63,6 +63,24 @@ final class JsonWorldStoreTest {
     }
 
     @Test
+    void nestedStackProvenanceRoundTrips() throws Exception {
+        var store = new JsonWorldStore(temp);
+        var key = WorldKey.singleplayer("World A", "World A", PLAYER_ID);
+        var source = SourceKey.storage("minecraft:overworld", ContainerKind.CHEST,
+                List.of(new BlockPosition(1, 64, 2)));
+        var nested = new StackSnapshot(new StackKey("minecraft:gold_ingot", "{}"), 3,
+                "Gold Ingot", List.of("Materials"),
+                new StackSnapshot.Provenance(List.of(0, 10_000, 10_001), 0));
+        var snapshot = new IndexSnapshot(List.of(new IndexedContainer(source, List.of(source),
+                List.of(new SlotSnapshot(10_001, nested)), Instant.parse("2026-07-22T12:00:00Z"))));
+
+        store.save(key, snapshot, List.of());
+
+        assertEquals(nested.provenance(), store.load(key).snapshot().containers().getFirst()
+                .slots().getFirst().stack().provenance());
+    }
+
+    @Test
     void corruptPrimaryRecoversPreviousGoodBackup() throws Exception {
         var store = new JsonWorldStore(temp);
         var key = WorldKey.singleplayer("World A", "World A", PLAYER_ID);
