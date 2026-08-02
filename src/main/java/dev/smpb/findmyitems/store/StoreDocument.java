@@ -72,19 +72,26 @@ record StoreDocument(
             String componentsJson,
             int count,
             String displayName,
-            List<String> tooltip) {
+            List<String> tooltip,
+            List<Integer> provenanceSlots,
+            Integer provenanceHolderSlot) {
         static StackDto from(StackSnapshot stack) {
             return new StackDto(
                     stack.key().itemId(),
                     stack.key().componentsJson(),
                     stack.count(),
                     stack.displayName(),
-                    stack.tooltip());
+                    stack.tooltip(),
+                    stack.provenance().slots(),
+                    stack.provenance().holderSlot());
         }
 
         StackSnapshot toDomain() {
+            var slots = provenanceSlots == null ? List.<Integer>of() : provenanceSlots;
+            var holderSlot = provenanceHolderSlot == null ? -1 : provenanceHolderSlot;
             return new StackSnapshot(
-                    new StackKey(itemId, componentsJson), count, displayName, tooltip);
+                    new StackKey(itemId, componentsJson), count, displayName, tooltip,
+                    new StackSnapshot.Provenance(slots, holderSlot));
         }
     }
 
@@ -131,4 +138,3 @@ record StoreDocument(
         }
     }
 }
-

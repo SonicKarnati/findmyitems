@@ -36,7 +36,8 @@ public final class SlotReader {
             var stack = container.getItem(i);
             if (stack.isEmpty()) continue;
             snapshots.add(snapshotStack(stack, i, ctx, player));
-            addNestedContents(snapshots, stack, ctx, player, nested, 1);
+            addNestedContents(snapshots, stack, ctx, player, nested, 1,
+                    List.of(i), stack.get(DataComponents.CONTAINER) == null ? -1 : i);
         }
         return List.copyOf(snapshots);
     }
@@ -50,7 +51,8 @@ public final class SlotReader {
             var stack = slot.getItem();
             if (stack.isEmpty()) continue;
             snapshots.add(snapshotStack(stack, i, ctx, player));
-            addNestedContents(snapshots, stack, ctx, player, nested, 1);
+            addNestedContents(snapshots, stack, ctx, player, nested, 1,
+                    List.of(i), stack.get(DataComponents.CONTAINER) == null ? -1 : i);
         }
         return List.copyOf(snapshots);
     }
@@ -61,14 +63,20 @@ public final class SlotReader {
      * the index as an item in its own right; its contents are added alongside it.
      */
     private static void addNestedContents(List<SlotSnapshot> out, ItemStack stack,
-                                          Item.TooltipContext ctx, Player player, int[] nextIndex, int depth) {
+                                          Item.TooltipContext ctx, Player player, int[] nextIndex, int depth,
+                                          List<Integer> parentPath, int holderSlot) {
         if (depth > MAX_NESTING) return;
         var contents = stack.get(DataComponents.CONTAINER);
         if (contents == null) return;
 
         for (var inner : (Iterable<ItemStack>) contents.nonEmptyItemCopyStream()::iterator) {
-            out.add(snapshotStack(inner, nextIndex[0]++, ctx, player));
-            addNestedContents(out, inner, ctx, player, nextIndex, depth + 1);
+            var slot = nextIndex[0]++;
+            var path = new ArrayList<>(parentPath);
+            path.add(slot);
+            out.add(snapshotStack(inner, slot, ctx, player,
+                    new StackSnapshot.Provenance(path, holderSlot)));
+            addNestedContents(out, inner, ctx, player, nextIndex, depth + 1, path,
+                    holderSlot >= 0 ? holderSlot : slot);
         }
     }
 
@@ -80,13 +88,19 @@ public final class SlotReader {
 
     static SlotSnapshot snapshotStack(ItemStack stack, int slotIndex,
                                       Item.TooltipContext ctx, Player player) {
+        return snapshotStack(stack, slotIndex, ctx, player, StackSnapshot.Provenance.empty());
+    }
+
+    private static SlotSnapshot snapshotStack(ItemStack stack, int slotIndex,
+                                              Item.TooltipContext ctx, Player player,
+                                              StackSnapshot.Provenance provenance) {
         var itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         var componentsJson = serializeComponents(stack.getComponentsPatch(), registriesOf(player));
         var key = new StackKey(itemId, componentsJson);
         var count = stack.getCount();
         var displayName = stack.getHoverName().getString();
         var tooltip = getTooltipLines(stack, ctx, player);
-        return new SlotSnapshot(slotIndex, new StackSnapshot(key, count, displayName, tooltip));
+        return new SlotSnapshot(slotIndex, new StackSnapshot(key, count, displayName, tooltip, provenance));
     }
 
     /** The registries a stack's components must be encoded against, or null if there is no world yet. */
