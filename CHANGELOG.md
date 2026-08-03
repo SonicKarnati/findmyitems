@@ -4,6 +4,12 @@ Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, 
 
 ## Unreleased
 
+## 0.1.3 — 2026-08-02
+
+### Changed
+
+- The catalog's default item and crafting amount is now 1 instead of 64. You can still enter a different amount.
+
 ### Fixed
 
 - An ender chest stays indexed as reachable while its block is standing. A re-scan read the block entity, which holds only the lid — an ender chest's items live on the player — and took that for a missing chest, so simply standing nearby long enough left the contents counted in the item total while the container count, the coordinates and the take amount all described a different chest.
