@@ -110,7 +110,7 @@ public final class CatalogScreen extends Screen {
 
     private String currentQuery = "";
     private View view = View.ITEMS;
-    private int amount = 64;
+    private int amount = 1;
     private int resultCount;
     private long lastSeenRevision = -1;
     private String status = "";

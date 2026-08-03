@@ -7,6 +7,7 @@ import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.search.InventorySearchController;
 import net.minecraft.client.gui.components.AbstractSelectionList;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.layouts.LayoutElement;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -86,6 +87,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             enderChestTotalsStayHonest(context, server);
 
             openCatalog(context);
+            assertDefaultCatalogAmount(context);
             search(context, "diamond");
             context.takeScreenshot("items-list-search");
 
@@ -272,9 +274,9 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         // Now empty both, nearest first. The ender chest is the second take, and it only works
         // because the rescan above left its access source alone.
         takeTheNearestEmeralds(context, server, "the block chest",
-                CHEST_EMERALDS, ENDER_EMERALDS, "items-emerald-take-chest");
+                CHEST_EMERALDS, ENDER_EMERALDS, CHEST_EMERALDS, "items-emerald-take-chest");
         takeTheNearestEmeralds(context, server, "the ender chest",
-                CHEST_EMERALDS + ENDER_EMERALDS, 0, "items-emerald-take-ender");
+                CHEST_EMERALDS + ENDER_EMERALDS, 0, ENDER_EMERALDS, "items-emerald-take-ender");
 
         strandedEnderStockIsStillCounted(context, server);
     }
@@ -337,10 +339,12 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             String from,
             int expectedCarried,
             int expectedRemaining,
+            int requested,
             String screenshot) {
         openCatalog(context);
         context.getInput().typeChars("emer");
         context.waitTicks(3);
+        setCatalogAmount(context, String.valueOf(requested));
 
         // MouseHandler is fed raw window coordinates, so the button's GUI position is scaled back.
         var cursor = context.computeOnClient(mc -> {
@@ -399,6 +403,16 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                 .filter(r -> r.key().itemId().equals("minecraft:emerald"))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private static void setCatalogAmount(ClientGameTestContext context, String amount) {
+        context.runOnClient(mc -> mc.gui.screen().children().stream()
+                .filter(child -> child instanceof EditBox)
+                .map(child -> (EditBox) child)
+                .skip(1)
+                .findFirst()
+                .ifPresent(field -> field.setValue(amount)));
+        context.waitTicks(2);
     }
 
     /** The one invariant issue #14 is about: the headline total is the sum of what the row lists. */
@@ -529,6 +543,19 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.waitForScreen(CatalogScreen.class);
         context.waitTicks(2);
         context.takeScreenshot("catalog-open");
+    }
+
+    private static void assertDefaultCatalogAmount(ClientGameTestContext context) {
+        var amount = context.computeOnClient(mc -> mc.gui.screen().children().stream()
+                .filter(child -> child instanceof EditBox)
+                .map(child -> (EditBox) child)
+                .skip(1)
+                .findFirst()
+                .map(EditBox::getValue)
+                .orElse(""));
+        if (!amount.equals("1")) {
+            throw new AssertionError("a new catalog should default to amount 1, but was " + amount);
+        }
     }
 
     private static void search(ClientGameTestContext context, String query) {
