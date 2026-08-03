@@ -21,6 +21,11 @@ final class InMemoryContainerIndexTest {
         return new SlotSnapshot(index, stack(itemId, count));
     }
 
+    private static SlotSnapshot slot(int index, String itemId, int count, String displayName) {
+        return new SlotSnapshot(index, new StackSnapshot(new StackKey(itemId, "{}"), count,
+                displayName, List.of()));
+    }
+
     private static ContainerObservation observation(SourceKey contentsKey, SourceKey accessSource, SlotSnapshot... slots) {
         return new ContainerObservation(contentsKey, List.of(accessSource), List.of(slots), Instant.now());
     }
@@ -198,5 +203,32 @@ final class InMemoryContainerIndexTest {
         assertEquals(1, results.size());
         assertEquals(96, results.getFirst().totalCount());
         assertEquals(2, results.getFirst().sources().size());
+    }
+
+    @Test
+    void ranksCompleteNameMatchesBeforeSubstringMatches() {
+        var index = new InMemoryContainerIndex();
+        var white = SourceKey.storage(DIM, ContainerKind.CHEST,
+                List.of(new BlockPosition(20, 64, 200)));
+        var orange = SourceKey.storage(DIM, ContainerKind.CHEST,
+                List.of(new BlockPosition(21, 64, 200)));
+        var bedrock = SourceKey.storage(DIM, ContainerKind.CHEST,
+                List.of(new BlockPosition(22, 64, 200)));
+        index.observe(observation(white, white, slot(0, "minecraft:white_bed", 1, "White Bed")));
+        index.observe(observation(orange, orange, slot(0, "minecraft:orange_bed", 1, "Orange Bed")));
+        index.observe(observation(bedrock, bedrock, slot(0, "minecraft:bedrock", 1, "Bedrock")));
+
+        var ids = index.search("bed").stream().map(result -> result.key().itemId()).toList();
+        assertEquals(3, ids.size());
+        assertTrue(ids.subList(0, 2).containsAll(List.of("minecraft:orange_bed", "minecraft:white_bed")));
+        assertEquals("minecraft:bedrock", ids.get(2));
+    }
+
+    @Test
+    void searchOnlyConsidersIndexedRootStacks() {
+        var index = new InMemoryContainerIndex();
+        index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 1, "Oak Log")));
+
+        assertTrue(index.search("plank").isEmpty());
     }
 }

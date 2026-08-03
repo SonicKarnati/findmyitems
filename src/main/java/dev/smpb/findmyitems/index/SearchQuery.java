@@ -1,10 +1,9 @@
 package dev.smpb.findmyitems.index;
 
-import dev.smpb.findmyitems.model.StackSnapshot;
-import java.util.Arrays;
+import dev.smpb.findmyitems.search.SearchDocument;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
+import java.util.Objects;
 
 public record SearchQuery(List<String> terms) {
     public SearchQuery {
@@ -12,33 +11,86 @@ public record SearchQuery(List<String> terms) {
     }
 
     public static SearchQuery parse(String input) {
-        var normalized = input == null ? "" : input.strip().toLowerCase(Locale.ROOT);
+        var normalized = SearchDocument.normalize(input);
         if (normalized.isEmpty()) {
             return new SearchQuery(List.of());
         }
-        return new SearchQuery(List.copyOf(new LinkedHashSet<>(Arrays.asList(normalized.split("\\s+")))));
+        return new SearchQuery(List.copyOf(new LinkedHashSet<>(List.of(normalized.split("\\s+")))));
     }
 
-    public boolean matches(StackSnapshot stack) {
-        if (terms.isEmpty()) {
-            return true;
+    public Match match(SearchDocument document) {
+        if (terms.isEmpty()) return new Match(MatchCategory.EXACT_FULL_NAME, 0);
+        if (terms.stream().allMatch(document.nameTokens()::contains)) {
+            return new Match(MatchCategory.EXACT_FULL_NAME, distanceFromName(document));
         }
-        var document = String.join(
-                        "\n",
-                        stack.displayName(),
-                        stack.key().itemId(),
-                        String.join("\n", stack.tooltip()))
-                .toLowerCase(Locale.ROOT);
-        // Tooltips spell enchantment levels in roman numerals ("Smite IV"), but people type "smite 4".
-        // Appending an arabic rewrite lets either spelling hit without touching what is stored.
-        document = document + "\n" + arabicLevels(document);
-        return terms.stream().allMatch(document::contains);
+        if (terms.stream().allMatch(document.tokens()::contains)) {
+            return new Match(MatchCategory.COMPLETE_WORD, distanceFromName(document));
+        }
+        if (orderedInName(document)) return new Match(MatchCategory.ORDERED_MULTI_TOKEN, terms.size());
+        var fuzzyScore = fuzzyScore(document);
+        if (fuzzyScore >= 0) return new Match(MatchCategory.FUZZY, fuzzyScore);
+        if (terms.stream().allMatch(term -> document.nameTokens().stream().anyMatch(token -> token.startsWith(term)))) {
+            return new Match(MatchCategory.WORD_PREFIX, terms.stream().mapToInt(String::length).sum());
+        }
+        if (terms.stream().allMatch(document.searchableText()::contains)) {
+            return new Match(MatchCategory.SUBSTRING, document.searchableText().length());
+        }
+        return null;
+    }
+
+    public enum MatchCategory { EXACT_FULL_NAME, COMPLETE_WORD, ORDERED_MULTI_TOKEN, WORD_PREFIX, SUBSTRING, FUZZY }
+
+    public record Match(MatchCategory category, int score) {
+        public Match { Objects.requireNonNull(category, "category"); }
+    }
+
+    private int distanceFromName(SearchDocument document) {
+        return Math.abs(document.displayName().length() - String.join(" ", terms).length());
+    }
+
+    private boolean orderedInName(SearchDocument document) {
+        var name = document.displayName().split("[^\\p{L}\\p{N}]+");
+        var at = 0;
+        for (var term : terms) {
+            while (at < name.length && !name[at].equals(term)) at++;
+            if (at == name.length) return false;
+            at++;
+        }
+        return true;
+    }
+
+    private int fuzzyScore(SearchDocument document) {
+        var total = 0;
+        for (var term : terms) {
+            var best = Integer.MAX_VALUE;
+            for (var token : document.tokens()) best = Math.min(best, editDistance(term, token));
+            var bound = Math.max(1, term.length() / 4);
+            if (best > bound) return -1;
+            total += best;
+        }
+        return total;
+    }
+
+    private static int editDistance(String left, String right) {
+        var row = new int[right.length() + 1];
+        for (var i = 0; i <= right.length(); i++) row[i] = i;
+        for (var i = 1; i <= left.length(); i++) {
+            var previous = row[0];
+            row[0] = i;
+            for (var j = 1; j <= right.length(); j++) {
+                var current = row[j];
+                row[j] = Math.min(Math.min(row[j] + 1, row[j - 1] + 1),
+                        previous + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1));
+                previous = current;
+            }
+        }
+        return row[right.length()];
     }
 
     private static final String[] ROMAN = {"i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"};
 
     /** Rewrites standalone roman numerals I-X as digits; everything else is left alone. */
-    static String arabicLevels(String document) {
+    public static String arabicLevels(String document) {
         var out = new StringBuilder(document.length());
         for (var word : document.split("(?=\\s)|(?<=\\s)")) {
             var index = indexOfRoman(word.strip());
@@ -54,4 +106,3 @@ public record SearchQuery(List<String> terms) {
         return -1;
     }
 }
-

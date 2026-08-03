@@ -19,5 +19,12 @@ public record ItemResult(
             throw new IllegalArgumentException("totalCount must be positive");
         }
     }
-}
 
+    public StackKey identity() {
+        return key;
+    }
+
+    public String stableIdentity() {
+        return key.itemId() + "\u0000" + key.componentsJson();
+    }
+}

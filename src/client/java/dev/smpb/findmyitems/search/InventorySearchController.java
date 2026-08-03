@@ -1,6 +1,10 @@
 package dev.smpb.findmyitems.search;
 
 import dev.smpb.findmyitems.FindMyItemsClient;
+import dev.smpb.findmyitems.index.SearchQuery;
+import dev.smpb.findmyitems.model.StackKey;
+import dev.smpb.findmyitems.model.StackSnapshot;
+import dev.smpb.findmyitems.observation.SlotReader;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
@@ -19,7 +23,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 
-import java.util.Locale;
 
 /**
  * Adds a filter box to every vanilla container screen (the player inventory and
@@ -96,15 +99,14 @@ public final class InventorySearchController {
     }
 
     private static void dimNonMatching(AbstractContainerScreen<?> screen, GuiGraphicsExtractor graphics, String query) {
-        var needle = query.trim().toLowerCase(Locale.ROOT);
-        if (needle.isEmpty()) return;
+        if (query.isBlank()) return;
 
         var left = screen.leftPos;
         var top = screen.topPos;
         for (var slot : screen.getMenu().slots) {
             if (!slot.isActive()) continue;
             var stack = slot.getItem();
-            if (stack.isEmpty() || matches(stack, needle)) continue;
+            if (stack.isEmpty() || matches(stack, query)) continue;
 
             var x = left + slot.x;
             var y = top + slot.y;
@@ -112,17 +114,19 @@ public final class InventorySearchController {
         }
     }
 
-    private static boolean matches(ItemStack stack, String needle) {
+    private static boolean matches(ItemStack stack, String query) {
         var client = Minecraft.getInstance();
         var tooltipContext = client.level == null
                 ? Item.TooltipContext.EMPTY
                 : Item.TooltipContext.of(client.level);
         var tooltip = stack.getTooltipLines(tooltipContext, client.player, TooltipFlag.NORMAL);
-        var searchable = new StringBuilder(stack.getHoverName().getString());
-        for (var line : tooltip) searchable.append('\n').append(line.getString());
-
-        var id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-        searchable.append('\n').append(id);
-        return searchable.toString().toLowerCase(Locale.ROOT).contains(needle);
+        var id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        var snapshot = new StackSnapshot(
+                new StackKey(id, SlotReader.serializeComponents(stack.getComponentsPatch(),
+                        SlotReader.registriesOf(client.player))),
+                1,
+                stack.getHoverName().getString(),
+                tooltip.stream().map(Component::getString).toList());
+        return SearchQuery.parse(query).match(dev.smpb.findmyitems.search.SearchDocument.from(snapshot)) != null;
     }
 }
