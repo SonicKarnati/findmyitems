@@ -78,6 +78,7 @@ public record SearchQuery(List<String> terms) {
     private int fuzzyScore(SearchDocument document) {
         var total = 0;
         for (var term : terms) {
+            if (term.chars().allMatch(Character::isDigit)) return -1;
             var best = Integer.MAX_VALUE;
             for (var token : document.tokens()) best = Math.min(best, editDistance(term, token));
             var bound = Math.max(1, term.length() / 4);

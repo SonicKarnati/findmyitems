@@ -266,4 +266,15 @@ final class InMemoryContainerIndexTest {
         assertEquals(List.of("minecraft:oak_log"), index.search("oak_log").stream()
                 .map(result -> result.key().itemId()).toList());
     }
+
+    @Test
+    void numericEnchantmentLevelDoesNotFuzzyMatchAnotherLevel() {
+        var index = new InMemoryContainerIndex();
+        var smiteFour = new StackSnapshot(new StackKey("minecraft:diamond_sword", "{smite:4}"), 1,
+                "Diamond Sword", List.of("Smite IV"));
+        index.observe(observation(SOURCE, SOURCE, new SlotSnapshot(0, smiteFour)));
+
+        assertTrue(index.search("smite 5").isEmpty());
+        assertEquals(1, index.search("smite 4").size());
+    }
 }
