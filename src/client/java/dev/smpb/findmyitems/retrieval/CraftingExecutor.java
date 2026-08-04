@@ -148,6 +148,8 @@ public final class CraftingExecutor {
     private boolean menuActionPending;
     private int outputWait;
     private String failureDiagnostics = "";
+    private int expectedMenuId = -1;
+    private LongSupplier targetGenerationSupplier = () -> request == null ? -1 : request.targetGeneration();
 
     public CraftingExecutor(ContainerIndex index, ModConfig config) {
         this(index, config, CraftingExecutor::currentPlayerGeneration,
@@ -194,6 +196,10 @@ public final class CraftingExecutor {
         actionsThisTick = 0;
         if (menuActionPending) return;
         if (!request.target().equals(request.plan().root().item()) || request.targetGeneration() < 0) {
+            cancel(CancelReason.TARGET_CHANGED);
+            return;
+        }
+        if (request.targetGeneration() > 0 && request.targetGeneration() != targetGenerationSupplier.getAsLong()) {
             cancel(CancelReason.TARGET_CHANGED);
             return;
         }
@@ -260,6 +266,10 @@ public final class CraftingExecutor {
     public List<StackKey> tableRequiredMaterials() { return tableRequiredMaterials; }
 
     public int actionsLastTick() { return actionsLastTick; }
+
+    public void setTargetGenerationSupplier(LongSupplier supplier) {
+        targetGenerationSupplier = Objects.requireNonNull(supplier, "supplier");
+    }
 
     public String menuDiagnostics() {
         var player = Minecraft.getInstance().player;
@@ -363,8 +373,7 @@ public final class CraftingExecutor {
     private void gather() {
         if (sourceIndex >= request.sources().size()) {
             if (request.mode() == Mode.GATHER_ONLY) {
-                state = State.COMPLETE;
-                status = ExecutionStatus.COMPLETE;
+                advanceCraft();
             } else {
                 advanceCraft();
             }
@@ -419,7 +428,7 @@ public final class CraftingExecutor {
 
     private void transfer() {
         var last = journal.isEmpty() ? null : journal.getLast();
-        if (last == null || last.moved() <= 0) {
+        if (last == null || last.moved() != last.requested()) {
             cancel(CancelReason.SOURCE_CHANGED);
             return;
         }
@@ -482,6 +491,7 @@ public final class CraftingExecutor {
         }
         status = ExecutionStatus.CRAFT;
         tableOpen = true;
+        expectedMenuId = player.containerMenu.containerId;
         ingredientIndex = 0;
         carryingIngredient = false;
         ingredientPlaced = false;
@@ -493,6 +503,10 @@ public final class CraftingExecutor {
         var menu = mc.player == null ? null : mc.player.containerMenu;
         if (!(menu instanceof CraftingMenu) && !(menu instanceof InventoryMenu)) {
             fail("crafting menu closed");
+            return;
+        }
+        if (menu.containerId != expectedMenuId) {
+            cancel(CancelReason.SCREEN_CLOSED);
             return;
         }
         var options = activeRecipe.ingredientOptions();
@@ -529,6 +543,10 @@ public final class CraftingExecutor {
             return;
         }
         var menu = player.containerMenu;
+        if (menu.containerId != expectedMenuId) {
+            cancel(CancelReason.SCREEN_CLOSED);
+            return;
+        }
         if (!menu.getSlot(0).hasItem()) {
             if (outputWait-- > 0) return;
             fail("recipe did not produce output");
@@ -588,12 +606,17 @@ public final class CraftingExecutor {
         ingredientIndex = 0;
         carryingIngredient = false;
         ingredientPlaced = false;
-        if (activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+        if (request.mode() == Mode.GATHER_ONLY && activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+            craftNodeIndex++;
+            advanceCraft();
+        } else if (activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
             state = tableOpen ? State.PLACE_RECIPE : State.LOCATE_TABLE;
         } else if (tableOpen) {
             state = State.CLOSE_TABLE;
         } else {
             status = ExecutionStatus.CRAFT;
+            var player = Minecraft.getInstance().player;
+            expectedMenuId = player == null ? -1 : player.containerMenu.containerId;
             state = State.PLACE_RECIPE;
         }
     }
@@ -625,6 +648,8 @@ public final class CraftingExecutor {
         mc.getSingleplayerServer().execute(() -> {
             var serverPlayer = mc.getSingleplayerServer().getPlayerList().getPlayer(uuid);
             var outputOverflow = false;
+            var actionFailure = serverPlayer == null || !isCurrent(token)
+                    || serverPlayer.containerMenu.containerId != menuId;
             if (serverPlayer != null && isCurrent(token) && serverPlayer.containerMenu.containerId == menuId) {
                 serverPlayer.containerMenu.clicked(slot, button, ContainerInput.PICKUP, serverPlayer);
                 if (slot == 0 && !serverPlayer.containerMenu.getCarried().isEmpty()) {
@@ -640,7 +665,8 @@ public final class CraftingExecutor {
             mc.execute(() -> {
                 if (runToken == token) {
                     menuActionPending = false;
-                    if (failedToInsertOutput) fail(ExecutionStatus.FULL, "crafted output did not fit");
+                    if (actionFailure) fail("menu action rejected");
+                    else if (failedToInsertOutput) fail(ExecutionStatus.FULL, "crafted output did not fit");
                 }
             });
         });

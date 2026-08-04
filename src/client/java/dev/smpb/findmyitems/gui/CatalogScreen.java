@@ -766,6 +766,10 @@ public final class CatalogScreen extends Screen {
             }
         }
         var executor = FindMyItemsClient.executor();
+        executor.setTargetGenerationSupplier(() -> {
+            var live = currentCatalog();
+            return live == null ? -1 : live.generation();
+        });
         executor.start(new CraftingExecutor.ExecutionRequest(plannedPlan, sources, selectedOutput.key(),
                 selectedOutput.recipeGeneration(), CraftingExecutor.currentPlayerGeneration(),
                 CraftingExecutor.currentWorldGeneration(), mode));
