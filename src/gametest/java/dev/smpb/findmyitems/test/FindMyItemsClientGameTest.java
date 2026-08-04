@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
+import java.lang.reflect.Method;
 
 /**
  * End-to-end test that boots the real Minecraft client, creates a world, and drives the mod
@@ -119,9 +120,17 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             switchViewByShortcut(context, GLFW.GLFW_KEY_3);
             context.takeScreenshot("crafting-index");
             assertCraftingIndexIsPopulated(context);
+            assertCraftingBrowseIsLazyAndRootBased(context);
+            assertCraftingViewportAndScroll(context);
+            context.runOnClient(mc -> requireCatalog(mc).mouseScrolled(200, 100, 0, 20));
+            context.waitTicks(2);
 
-            context.getInput().typeChars("stone pickaxe");
+            clickFirstCraftingRow(context);
+            assertSingleSelectedPlan(context);
+
+            context.getInput().typeChars("not-a-real-item");
             context.waitTicks(5);
+            assertSelectionClearsAfterFilter(context);
             context.takeScreenshot("crafting-tree");
 
             switchViewByShortcut(context, GLFW.GLFW_KEY_1);
@@ -153,6 +162,120 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         });
         if (rows < 500) {
             throw new AssertionError("crafting view should list the item registry, listed " + rows + " rows");
+        }
+    }
+
+    private static void assertCraftingBrowseIsLazyAndRootBased(ClientGameTestContext context) {
+        var state = context.computeOnClient(mc -> {
+            var screen = requireCatalog(mc);
+            return new Object[] {
+                    invoke(screen, "currentRows").toString(),
+                    invoke(screen, "planRequestCount"),
+                    invoke(screen, "selectedIdentity")
+            };
+        });
+        if (!state[1].equals(0)) {
+            throw new AssertionError("empty crafting browse must not invoke the planner, requests=" + state[1]);
+        }
+        if (state[2] != null) {
+            throw new AssertionError("empty crafting browse must not select an output");
+        }
+        if (((String) state[0]).contains("MaterialRow")) {
+            throw new AssertionError("crafting browse rows must contain root outputs only");
+        }
+    }
+
+    private static void assertCraftingViewportAndScroll(ClientGameTestContext context) {
+        var visible = context.computeOnClient(mc -> (Integer) invoke(requireCatalog(mc), "visibleRowCount"));
+        var total = context.computeOnClient(mc -> ((List<?>) invoke(requireCatalog(mc), "currentRows")).size());
+        if (visible <= 0 || visible >= total) {
+            throw new AssertionError("crafting viewport should render a clipped subset of rows, visible="
+                    + visible + ", total=" + total);
+        }
+
+        context.runOnClient(mc -> requireCatalog(mc).mouseScrolled(200, 100, 0, -20));
+        context.waitTicks(2);
+        var before = context.computeOnClient(mc -> (Double) invoke(requireCatalog(mc), "scrollAmount"));
+        if (before <= 0) {
+            throw new AssertionError("crafting list should scroll before an index-only refresh");
+        }
+        context.runOnClient(mc -> FindMyItemsClient.index().replace(FindMyItemsClient.index().snapshot()));
+        context.waitTicks(3);
+        var after = context.computeOnClient(mc -> (Double) invoke(requireCatalog(mc), "scrollAmount"));
+        if (Math.abs(before - after) > 0.01) {
+            throw new AssertionError("index-only refresh must preserve scroll, before=" + before + ", after=" + after);
+        }
+
+        var hit = context.computeOnClient(mc -> invoke(requireCatalog(mc), "hitTestRow",
+                new Class<?>[] { double.class, double.class }, new Object[] { 200.0, 100.0 }));
+        var miss = context.computeOnClient(mc -> invoke(requireCatalog(mc), "hitTestRow",
+                new Class<?>[] { double.class, double.class }, new Object[] { 200.0, 10000.0 }));
+        if (hit.toString().equals("OptionalInt.empty") || !miss.toString().equals("OptionalInt.empty")) {
+            throw new AssertionError("viewport hit testing must accept an in-viewport row and reject clipped space");
+        }
+    }
+
+    private static void clickFirstCraftingRow(ClientGameTestContext context) {
+        var cursor = context.computeOnClient(mc -> {
+            var list = mc.gui.screen().children().stream()
+                    .filter(child -> child instanceof AbstractSelectionList<?>).map(child -> (AbstractSelectionList<?>) child)
+                    .findFirst().orElseThrow();
+            var row = (LayoutElement) list.children().getFirst();
+            var window = mc.getWindow();
+            return new double[] {
+                    (row.getX() + row.getWidth() / 2.0) * window.getScreenWidth() / window.getGuiScaledWidth(),
+                    (row.getY() + row.getHeight() / 2.0) * window.getScreenHeight() / window.getGuiScaledHeight()
+            };
+        });
+        context.getInput().setCursorPos(cursor[0], cursor[1]);
+        context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        context.waitTicks(1);
+    }
+
+    private static void assertSingleSelectedPlan(ClientGameTestContext context) {
+        var state = context.computeOnClient(mc -> {
+            var screen = requireCatalog(mc);
+            return new Object[] { invoke(screen, "planRequestCount"), invoke(screen, "selectedIdentity") };
+        });
+        if (!state[0].equals(1)) {
+            throw new AssertionError("selecting one crafting output must invoke exactly one plan request, requests=" + state[0]);
+        }
+        if (state[1] == null) {
+            throw new AssertionError("selecting a crafting output must retain its stable identity");
+        }
+    }
+
+    private static void assertSelectionClearsAfterFilter(ClientGameTestContext context) {
+        var selected = context.computeOnClient(mc -> invoke(requireCatalog(mc), "selectedIdentity"));
+        if (selected != null) {
+            throw new AssertionError("filter changes must clear stale crafting selection, found " + selected);
+        }
+    }
+
+    private static CatalogScreen requireCatalog(net.minecraft.client.Minecraft minecraft) {
+        if (!(minecraft.gui.screen() instanceof CatalogScreen screen)) {
+            throw new AssertionError("catalog screen is not open");
+        }
+        return screen;
+    }
+
+    private static Object invoke(CatalogScreen screen, String name) {
+        return invoke(screen, name, new Class<?>[0], new Object[0]);
+    }
+
+    private static Object invoke(CatalogScreen screen, String name, Object... arguments) {
+        var types = new Class<?>[arguments.length];
+        for (var i = 0; i < arguments.length; i++) types[i] = arguments[i].getClass();
+        return invoke(screen, name, types, arguments);
+    }
+
+    private static Object invoke(CatalogScreen screen, String name, Class<?>[] types, Object[] arguments) {
+        try {
+            Method method = CatalogScreen.class.getDeclaredMethod(name, types);
+            method.setAccessible(true);
+            return method.invoke(screen, arguments);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("missing CatalogScreen test probe " + name, e);
         }
     }
 

@@ -1,7 +1,7 @@
 {
   "key.category.findmyitems": "findmyitems",
   "key.findmyitems.open_catalog": "Open container catalog",
-  "screen.findmyitems.catalog": "findmyitems",
+  "screen.findmyitems.catalog": "Find My Items",
   "screen.findmyitems.search": "Search",
   "screen.findmyitems.amount": "Amount",
   "screen.findmyitems.hint.items": "Search items...",
@@ -64,5 +64,16 @@
   "screen.findmyitems.config.index_ender.tooltip": "Keep your ender chest contents indexed with no ender chest placed.\nIt is player data, so it costs no chunk loading. That stock is listed\nas out of reach until you stand at an ender chest.",
   "screen.findmyitems.deposit": "Put back %d",
   "screen.findmyitems.deposit.none": "You are not carrying any, or this container does not stock it",
-  "screen.findmyitems.footer.craft_index": "%d items · click one to break it down into materials"
+  "screen.findmyitems.footer.craft_index": "%d items · click one to break it down into materials",
+  "screen.findmyitems.craft.gather_materials": "Gather materials",
+  "screen.findmyitems.craft.gather_and_craft": "Gather and craft",
+  "screen.findmyitems.craft.known_in_storage": "Known in storage: %d",
+  "screen.findmyitems.craft.reachable_now": "Reachable now",
+  "screen.findmyitems.craft.unavailable": "Unavailable",
+  "screen.findmyitems.craft.missing_materials": "Missing materials: %d (have %d)",
+  "screen.findmyitems.craft.no_reachable_table": "No reachable crafting table",
+  "screen.findmyitems.craft.calculating": "Calculating",
+  "screen.findmyitems.craft.busy": "Busy",
+  "screen.findmyitems.craft.failed": "Failed",
+  "screen.findmyitems.locate.quantity": "Highlight %d × %s"
 }

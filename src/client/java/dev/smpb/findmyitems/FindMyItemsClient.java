@@ -103,6 +103,7 @@ public final class FindMyItemsClient implements ClientModInitializer {
             var key = WorldKey.singleplayer(saveId, levelName, playerId);
 
             var result = store.load(key);
+            CatalogScreen.invalidateRecipeCache();
             index.replace(result.snapshot());
         });
 

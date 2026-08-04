@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public final class CatalogScreen extends Screen {
     static final int TITLE_Y = 8;
@@ -100,6 +101,9 @@ public final class CatalogScreen extends Screen {
     private static Set<StackKey> cachedCraftableSource;
     private static List<ItemStack> cachedCraftableStacks = List.of();
     private static List<SearchableItem> cachedSearchableItems;
+    private static RecipeManager cachedRecipeManager;
+    private static RecipeCatalog cachedRecipeCatalog;
+    private static int cachedRecipeFingerprint;
 
     private Map<StackKey, Long> cachedStock;
     private long cachedStockRevision = -1;
@@ -117,9 +121,26 @@ public final class CatalogScreen extends Screen {
     private int amount = 1;
     private int resultCount;
     private long lastSeenRevision = -1;
+    private OutputIdentity selectedOutput;
+    private OutputIdentity hoveredOutput;
+    private long searchGeneration;
+    private long planGeneration;
+    private int planRequestCount;
+    private List<DisplayPlan.Row> plannedRows;
+    private long seenRecipeGeneration = -1;
     private String status = "";
     private ItemResult hoveredItem;
     private final List<ActionRegion> actionRegions = new ArrayList<>();
+
+    record OutputIdentity(StackKey key, long recipeGeneration) {}
+
+    public static void invalidateRecipeCache() {
+        cachedRecipeManager = null;
+        cachedRecipeCatalog = null;
+        cachedRecipeFingerprint = 0;
+        cachedCraftableSource = null;
+        cachedCraftableStacks = List.of();
+    }
 
     public CatalogScreen(ContainerIndex index, ModConfig config) {
         super(Component.translatable("screen.findmyitems.catalog"));
@@ -248,6 +269,8 @@ public final class CatalogScreen extends Screen {
     private void switchTo(View next) {
         if (view == next) return;
         view = next;
+        invalidateQuery();
+        if (view != View.CRAFTING) selectedOutput = null;
         refreshChrome();
         rebuildList();
         // Switching views is always followed by typing, so hand the cursor back to the search box.
@@ -257,6 +280,7 @@ public final class CatalogScreen extends Screen {
     private void toggleLayout() {
         config.gridLayout = !config.gridLayout;
         config.save();
+        invalidateQuery();
         refreshChrome();
         rebuildList();
         setFocused(searchField);
@@ -266,7 +290,13 @@ public final class CatalogScreen extends Screen {
 
     private void onSearchChanged(String query) {
         currentQuery = query;
+        invalidateQuery();
+        hoveredOutput = null;
+        if (selectedOutput != null && !craftingRoots().stream().anyMatch(key -> key.equals(selectedOutput.key()))) {
+            selectedOutput = null;
+        }
         updateResults();
+        if (selectedOutput != null) requestPlan();
     }
 
     private void onAmountTyped(String typed) {
@@ -276,7 +306,11 @@ public final class CatalogScreen extends Screen {
             return;
         }
         amount = digits.isEmpty() ? 1 : Math.min(9999, Integer.parseInt(digits));
-        if (view == View.CRAFTING) updateResults();
+        if (view == View.CRAFTING) {
+            invalidateQuery();
+            updateResults();
+            if (selectedOutput != null) requestPlan();
+        }
     }
 
     private void setAmount(int next) {
@@ -323,7 +357,7 @@ public final class CatalogScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (rowList != null && rowList.isMouseOver(event.x(), event.y())) {
+        if (rowList != null && rowList.viewport().hitTest(event.x(), event.y()).isPresent()) {
             for (var region : actionRegions) {
                 if (!region.contains((int) event.x(), (int) event.y())) continue;
                 var action = event.button() == 1 ? region.secondary() : region.primary();
@@ -338,7 +372,7 @@ public final class CatalogScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-        if (rowList != null && rowList.isMouseOver(x, y)) {
+        if (rowList != null && rowList.viewport().hitTest(x, y).isPresent()) {
             for (var region : actionRegions) {
                 if (region.scrollsAmount() && region.contains((int) x, (int) y)) {
                     setAmount(amount + (int) scrollY);
@@ -355,6 +389,7 @@ public final class CatalogScreen extends Screen {
         actionRegions.clear();
         // Whichever grid cell is under the cursor claims this during the list's own render below.
         hoveredItem = null;
+        hoveredOutput = null;
         super.extractRenderState(graphics, mouseX, mouseY, a);
 
         if (hasDetailPane()) drawDetailPane(graphics);
@@ -482,21 +517,36 @@ public final class CatalogScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        if (view == View.CRAFTING) {
+            var catalog = currentCatalog();
+            if (catalog != null && seenRecipeGeneration >= 0 && catalog.generation() != seenRecipeGeneration) {
+                seenRecipeGeneration = catalog.generation();
+                selectedOutput = null;
+                invalidateQuery();
+                updateResults(true);
+            }
+        }
         if (index.revision() == lastSeenRevision) return;
         lastSeenRevision = index.revision();
-        updateResults();
+        invalidateQuery();
+        updateResults(true);
+        if (selectedOutput != null) requestPlan();
     }
 
     // ---------------------------------------------------------------- data
 
     void updateResults() {
+        updateResults(false);
+    }
+
+    private void updateResults(boolean preserveScroll) {
         status = "";
         var rows = switch (view) {
             case ITEMS -> itemRows();
             case CONTAINERS -> containerRows();
             case CRAFTING -> craftingRows();
         };
-        rowList.setRows(rows);
+        rowList.setRows(rows, preserveScroll);
     }
 
     private List<Row> itemRows() {
@@ -541,37 +591,22 @@ public final class CatalogScreen extends Screen {
     }
 
     private List<Row> craftingRows() {
-        resultCount = 0;
-        if (currentQuery.isBlank()) {
-            return allItemRows();
-        }
-
-        var mc = Minecraft.getInstance();
-        var server = mc.getSingleplayerServer();
-        var level = mc.level;
-        if (server == null || level == null) {
-            status = Component.translatable("screen.findmyitems.craft.singleplayer_only").getString();
+        if (selectedOutput == null) return rootRows();
+        if (plannedRows == null) {
+            status = Component.translatable("screen.findmyitems.craft.calculating").getString();
             return List.of();
         }
-
-        var target = resolveItem(currentQuery);
-        if (target == null) {
-            status = Component.translatable("screen.findmyitems.craft.unknown_item", currentQuery).getString();
-            return List.of();
-        }
-
-        var catalog = RecipeCatalog.from(server.getRecipeManager(), level);
-        var targetKey = RecipeCatalog.stackKey(new ItemStack(target), level);
-        var plan = CraftingPlanner.plan(catalog, targetKey, amount, PlanningInventory.of(stock()),
-                dev.smpb.findmyitems.craft.PlanningPolicy.DEFAULT);
-        var rows = new ArrayList<Row>();
-        for (var row : DisplayPlan.flatten(plan)) rows.add(new MaterialRow(row));
-        resultCount = rows.size();
-        return rows;
+        resultCount = plannedRows.size();
+        return plannedRows.stream().<Row>map(MaterialRow::new).toList();
     }
 
-    /** Every craftable item, alphabetical, as a menu to pick a craft target from. */
-    private List<Row> allItemRows() {
+    private List<Row> rootRows() {
+        var roots = craftingRoots();
+        resultCount = roots.size();
+        return roots.stream().<Row>map(ItemChoiceRow::new).toList();
+    }
+
+    private List<StackKey> craftingRoots() {
         var mc = Minecraft.getInstance();
         var server = mc.getSingleplayerServer();
         var level = mc.level;
@@ -580,11 +615,88 @@ public final class CatalogScreen extends Screen {
             return List.of();
         }
 
-        var rows = craftableStacks(server.getRecipeManager(), level).stream()
-                .<Row>map(ItemChoiceRow::new)
+        var needle = currentQuery.strip().toLowerCase(Locale.ROOT);
+        var catalog = recipeCatalog(server.getRecipeManager(), level);
+        seenRecipeGeneration = catalog.generation();
+        return catalog.craftableRoots().stream()
+                .sorted(Comparator.comparing(key -> buildStack(key).getHoverName().getString(),
+                        String.CASE_INSENSITIVE_ORDER))
+                .filter(key -> needle.isEmpty() || rootMatches(key, needle))
                 .toList();
-        resultCount = rows.size();
-        return rows;
+    }
+
+    private void selectOutput(StackKey key) {
+        var catalog = currentCatalog();
+        if (catalog == null) return;
+        selectedOutput = new OutputIdentity(key, catalog.generation());
+        hoveredOutput = null;
+        plannedRows = null;
+        searchGeneration++;
+        requestPlan();
+        updateResults();
+    }
+
+    private RecipeCatalog currentCatalog() {
+        var mc = Minecraft.getInstance();
+        var server = mc.getSingleplayerServer();
+        var level = mc.level;
+        return server == null || level == null ? null : recipeCatalog(server.getRecipeManager(), level);
+    }
+
+    private void requestPlan() {
+        if (view != View.CRAFTING || selectedOutput == null) return;
+        var catalog = currentCatalog();
+        if (catalog == null || catalog.generation() != selectedOutput.recipeGeneration()) return;
+
+        var requestGeneration = ++planGeneration;
+        var queryGeneration = searchGeneration;
+        var revision = index.revision();
+        var requestedAmount = amount;
+        var identity = selectedOutput;
+        var inventory = PlanningInventory.of(stock());
+        planRequestCount++;
+        status = Component.translatable("screen.findmyitems.craft.calculating").getString();
+        plannedRows = null;
+        CompletableFuture.supplyAsync(() -> CraftingPlanner.plan(catalog, identity.key(), requestedAmount,
+                        inventory, dev.smpb.findmyitems.craft.PlanningPolicy.DEFAULT))
+                .whenComplete((plan, failure) -> Minecraft.getInstance().execute(() -> {
+                    if (failure != null) {
+                        if (requestGeneration == planGeneration) {
+                            status = Component.translatable("screen.findmyitems.craft.failed").getString();
+                            plannedRows = List.of();
+                            updateResults();
+                        }
+                        return;
+                    }
+                    if (requestGeneration != planGeneration || queryGeneration != searchGeneration
+                            || revision != index.revision() || requestedAmount != amount
+                            || selectedOutput != identity || currentCatalog() != catalog) return;
+                    plannedRows = DisplayPlan.flatten(plan);
+                    status = "";
+                    updateResults();
+                }));
+    }
+
+    private void invalidateQuery() {
+        searchGeneration++;
+        planGeneration++;
+        plannedRows = null;
+    }
+
+    private boolean rootMatches(StackKey key, String needle) {
+        var stack = buildStack(key);
+        return key.itemId().toLowerCase(Locale.ROOT).contains(needle.replace(' ', '_'))
+                || stack.getHoverName().getString().toLowerCase(Locale.ROOT).contains(needle);
+    }
+
+    private RecipeCatalog recipeCatalog(RecipeManager recipes, Level level) {
+        var fingerprint = recipes.getRecipes().hashCode();
+        if (recipes != cachedRecipeManager || cachedRecipeCatalog == null || fingerprint != cachedRecipeFingerprint) {
+            cachedRecipeManager = recipes;
+            cachedRecipeFingerprint = fingerprint;
+            cachedRecipeCatalog = RecipeCatalog.from(recipes, level);
+        }
+        return cachedRecipeCatalog;
     }
 
     /**
@@ -978,17 +1090,29 @@ public final class CatalogScreen extends Screen {
 
     private final class RowList extends ObjectSelectionList<Row> {
         private final int listWidth;
+        private final int rowHeight;
+        private List<Row> currentRows = List.of();
 
         RowList(Minecraft minecraft, int listWidth, int screenHeight, int listX, int rowHeight) {
             super(minecraft, listWidth, screenHeight - LIST_Y - FOOTER_HEIGHT, LIST_Y, rowHeight);
             this.listWidth = listWidth;
+            this.rowHeight = rowHeight;
             setX(listX);
         }
 
-        void setRows(List<Row> rows) {
+        void setRows(List<Row> rows, boolean preserveScroll) {
+            var oldScroll = scrollAmount();
+            currentRows = List.copyOf(rows);
             clearEntries();
             rows.forEach(this::addEntry);
-            setScrollAmount(0);
+            var layout = ViewportLayout.layout(getX(), getRight(), getY(), getBottom(), rowHeight,
+                    currentRows.size(), preserveScroll ? oldScroll : 0, 1);
+            setScrollAmount(layout.scroll());
+        }
+
+        ViewportLayout.Layout viewport() {
+            return ViewportLayout.layout(getX(), getRight(), getY(), getBottom(), rowHeight,
+                    currentRows.size(), scrollAmount(), 1);
         }
 
         @Override
@@ -1006,8 +1130,34 @@ public final class CatalogScreen extends Screen {
         public void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
             graphics.fill(getX(), getY(), getRight(), getBottom(), LIST_BACKGROUND);
             graphics.outline(getX(), getY(), getWidth(), getHeight(), LIST_BORDER);
+            graphics.enableScissor(getX(), getY(), getRight(), getBottom());
             super.extractWidgetRenderState(graphics, mouseX, mouseY, delta);
+            graphics.disableScissor();
         }
+    }
+
+    List<?> currentRows() {
+        return rowList == null ? List.of() : rowList.currentRows;
+    }
+
+    double scrollAmount() {
+        return rowList == null ? 0 : rowList.scrollAmount();
+    }
+
+    OutputIdentity selectedIdentity() {
+        return selectedOutput;
+    }
+
+    int visibleRowCount() {
+        return rowList == null ? 0 : rowList.viewport().rows().size();
+    }
+
+    java.util.OptionalInt hitTestRow(double x, double y) {
+        return rowList == null ? java.util.OptionalInt.empty() : rowList.viewport().hitTest(x, y);
+    }
+
+    int planRequestCount() {
+        return planRequestCount;
     }
 
     private abstract class Row extends ObjectSelectionList.Entry<Row> {
@@ -1256,10 +1406,12 @@ public final class CatalogScreen extends Screen {
 
     /** Crafting view with an empty box: pick an item to plan. Clicking one types it into the search. */
     private final class ItemChoiceRow extends Row {
+        private final StackKey key;
         private final ItemStack stack;
 
-        ItemChoiceRow(ItemStack stack) {
-            this.stack = stack;
+        ItemChoiceRow(StackKey key) {
+            this.key = key;
+            this.stack = buildStack(key);
         }
 
         @Override
@@ -1271,6 +1423,8 @@ public final class CatalogScreen extends Screen {
 
             if (mouseX >= left && mouseX < right && mouseY >= top && mouseY < top + ROW_HEIGHT) {
                 graphics.fill(left, top, right, top + ROW_HEIGHT, CELL_HOVER);
+                var catalog = currentCatalog();
+                if (catalog != null) hoveredOutput = new OutputIdentity(key, catalog.generation());
             }
 
             slot(graphics, stack, left, middle - SLOT_SIZE / 2, null);
@@ -1281,8 +1435,7 @@ public final class CatalogScreen extends Screen {
 
         /** Typing the id rather than the display name so {@code resolveItem} lands on this exact item. */
         private void plan() {
-            searchField.setValue(BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath());
-            CatalogScreen.this.setFocused(searchField);
+            selectOutput(key);
         }
 
         @Override
@@ -1324,7 +1477,8 @@ public final class CatalogScreen extends Screen {
             }
 
             actionButton(graphics, locateX, buttonY, Items.ENDER_EYE, mouseX, mouseY, found != null, found != null
-                    ? Component.translatable("screen.findmyitems.locate", stack.getHoverName().getString())
+                    ? Component.translatable("screen.findmyitems.locate.quantity", material.requested(),
+                    stack.getHoverName().getString())
                     : Component.translatable("screen.findmyitems.tooltip.nowhere"));
             if (found != null) {
                 actionRegions.add(ActionRegion.click(locateX, buttonY, () -> locateItem(found)));
@@ -1333,10 +1487,10 @@ public final class CatalogScreen extends Screen {
 
         private String status() {
             if (material.missing() == 0) {
-                return Component.translatable("screen.findmyitems.craft.have", material.indexed()).getString();
+                return Component.translatable("screen.findmyitems.craft.known_in_storage", material.indexed()).getString();
             }
-            var key = "screen.findmyitems.craft.short";
-            return Component.translatable(key, material.missing(), material.indexed()).getString();
+            return Component.translatable("screen.findmyitems.craft.missing_materials", material.missing(),
+                    material.indexed()).getString();
         }
 
         private int statusColor() {
