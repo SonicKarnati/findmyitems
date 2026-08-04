@@ -1,5 +1,6 @@
 package dev.smpb.findmyitems.gui;
 
+import dev.smpb.findmyitems.craft.CraftingPlan;
 import java.util.OptionalInt;
 
 /** Typed client-game-test bridge for CatalogScreen's package-private probes. */
@@ -20,6 +21,14 @@ public final class CatalogScreenTestAccess {
 
     public static int rowCount(CatalogScreen screen) {
         return screen.currentRows().size();
+    }
+
+    public static String statusText(CatalogScreen screen) {
+        return screen.statusText();
+    }
+
+    public static void showGatherOnlyStatus(CatalogScreen screen, CraftingPlan plan) {
+        screen.showGatherOnlyStatusForTest(plan);
     }
 
     public static BrowseState browseState(CatalogScreen screen) {

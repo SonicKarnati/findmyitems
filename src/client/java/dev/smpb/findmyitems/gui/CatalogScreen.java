@@ -1303,6 +1303,14 @@ public final class CatalogScreen extends Screen {
         return planRequestCount;
     }
 
+    String statusText() {
+        return status;
+    }
+
+    void showGatherOnlyStatusForTest(CraftingPlan plan) {
+        status = gatherOnlyStatus(plan.root(), currentCatalog());
+    }
+
     GenerationState generationState() {
         return new GenerationState(searchGeneration, planGeneration, appliedPlanGeneration);
     }

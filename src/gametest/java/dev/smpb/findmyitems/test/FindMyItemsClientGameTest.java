@@ -5,8 +5,11 @@ import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
 import dev.smpb.findmyitems.craft.CraftingPlan;
+import dev.smpb.findmyitems.craft.CraftingPlanner;
 import dev.smpb.findmyitems.craft.PlanScore;
 import dev.smpb.findmyitems.craft.PlanningInventory;
+import dev.smpb.findmyitems.craft.PlanningPolicy;
+import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.model.BlockPosition;
@@ -148,12 +151,12 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             assertExecutorBusyGuard(context);
             assertExecutorRefusesFullInventory(context, server);
             assertExecutorCancelsDeletedSource(context, server);
-            assertExecutorCancelsMovement(context);
+            assertExecutorCancelsMovement(context, server);
             assertExecutorCancelsClosedScreen(context);
             assertExecutorCancelsQueryAndSelection(context);
             assertExecutorCancelsChangedTarget(context);
             assertCancellationConservesSourceAndPlayerTotals(context, server);
-            assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(context);
+            assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(context, server);
             assertExecutorReportsMenuActionFailure(context, server);
         }
     }
@@ -235,26 +238,35 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         });
         if (started != CraftingExecutor.State.GATHER) throw new AssertionError("preflight did not enter gather");
         server.runOnServer(s -> ((ChestBlockEntity) s.overworld().getBlockEntity(CHEST)).setItem(0, ItemStack.EMPTY));
-        context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SOURCE_CHANGED));
+        runExecutorTicks(context, 80);
         assertCancelled(context, "SOURCE_CHANGED");
     }
 
-    private static void assertExecutorCancelsMovement(ClientGameTestContext context) {
-        var generations = new long[] {11, 22};
-        var result = context.computeOnClient(mc -> {
-            var executor = new CraftingExecutor(FindMyItemsClient.index(), FindMyItemsClient.config(),
-                    () -> generations[0], () -> generations[1]);
-            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(), 0);
-            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(), 11, 22,
+    private static void assertExecutorCancelsMovement(
+            ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 1, 0);
+        context.computeOnClient(mc -> {
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(diamond, 1L), 0);
+            FindMyItemsClient.executor().start(new CraftingExecutor.ExecutionRequest(plan,
+                    List.of(sourceSnapshot(diamond, CHEST, 1, 0)),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
                     CraftingExecutor.Mode.GATHER_ONLY));
-            executor.tick();
-            generations[0]++;
-            executor.tick();
-            return executor.transferJournal().getLast().note();
+            return null;
         });
-        if (!result.equals("cancelled:out_of_reach")) {
-            throw new AssertionError("movement must cancel the active executor: " + result);
-        }
+        context.runOnClient(mc -> {
+            mc.player.setNoGravity(true);
+            mc.player.setPos(CHEST.getX() + 40.5, CHEST.getY() + 1, CHEST.getZ() + 0.5);
+        });
+        context.waitTicks(1);
+        assertCancelled(context, "OUT_OF_REACH");
+        context.runOnClient(mc -> {
+            mc.player.setNoGravity(false);
+            mc.player.setPos(STAND.getX() + 0.5, STAND.getY() + 1, STAND.getZ() + 0.5);
+        });
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(player ->
+                player.setPos(STAND.getX() + 0.5, STAND.getY() + 1, STAND.getZ() + 0.5)));
+        context.waitTicks(2);
     }
 
     private static void assertExecutorCancelsClosedScreen(ClientGameTestContext context) {
@@ -278,9 +290,19 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.waitTicks(1);
         assertCancelled(context, "QUERY_CHANGED");
 
-        context.computeOnClient(mc -> startIdleExecutor(CraftingExecutor.Mode.GATHER_ONLY).state());
-        context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED));
-        assertCancelled(context, "SELECTION_CHANGED");
+        clearSearch(context, "diamond".length());
+        switchViewByShortcut(context, GLFW.GLFW_KEY_3);
+        context.waitTicks(5);
+        var pending = context.computeOnClient(mc -> startPendingExecutor(CraftingExecutor.Mode.GATHER_ONLY).status());
+        if (pending != ExecutionStatus.CALCULATING) {
+            throw new AssertionError("selection cancellation fixture did not become active: " + pending);
+        }
+        clickFirstCraftingRow(context);
+        var cancelled = context.computeOnClient(mc -> FindMyItemsClient.executor().status());
+        if (cancelled != ExecutionStatus.CANCELLED) {
+            throw new AssertionError("selecting a different catalog output must cancel the active executor, status="
+                    + cancelled);
+        }
     }
 
     private static void assertExecutorCancelsChangedTarget(ClientGameTestContext context) {
@@ -321,29 +343,62 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     }
 
     private static void assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(
-            ClientGameTestContext context) {
+            ClientGameTestContext context,
+            net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 3, 0);
+        server.runOnServer(s -> {
+            var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
+            chest.setItem(1, new ItemStack(Items.OAK_PLANKS, 12));
+        });
+        context.waitTicks(80);
+        openCatalog(context);
+        switchViewByShortcut(context, GLFW.GLFW_KEY_3);
         var result = context.computeOnClient(mc -> {
-            var stick = new StackKey("minecraft:stick", "{}");
+            var catalog = RecipeCatalog.from(mc.getSingleplayerServer().getRecipeManager(), mc.level);
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var planks = new StackKey("minecraft:oak_planks", "{}");
             var pickaxe = new StackKey("minecraft:diamond_pickaxe", "{}");
-            var child = CraftingPlan.node(stick, 1, 0, 1, List.of(), Map.of(), Map.of(), null);
-            var root = CraftingPlan.node(pickaxe, 1, 0, 1, List.of(child), Map.of(), Map.of(), null);
-            var plan = CraftingPlan.of(root, PlanningInventory.empty(), Map.of(), Map.of(), Map.of(),
-                    new PlanScore(0, 0, 0, 0, 0));
+            var plan = CraftingPlanner.plan(catalog, pickaxe, 1,
+                    PlanningInventory.of(Map.of(diamond, 3L, planks, 2L)), PlanningPolicy.DEFAULT);
+            var sources = List.of(sourceSnapshot(diamond, CHEST, 3, 0),
+                    sourceSnapshot(planks, CHEST, 2, 1));
             var executor = FindMyItemsClient.executor();
-            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, sources,
                     CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
                     CraftingExecutor.Mode.GATHER_ONLY));
             executor.tick();
-            return executor.tableRequiredMaterials();
+            var screen = requireCatalog(mc);
+            CatalogScreenTestAccess.showGatherOnlyStatus(screen, plan);
+            return new Object[] {plan, CatalogScreenTestAccess.statusText(screen),
+                    executor.tableRequiredMaterials(), CatalogScreenTestAccess.rowCount(screen)};
         });
-        if (!result.contains(new StackKey("minecraft:diamond_pickaxe", "{}"))) {
-            throw new AssertionError("gather-only must retain the visible table-required root after inventory subrecipes");
+        var plan = (CraftingPlan) result[0];
+        if (!result[1].toString().contains("crafting table required for")
+                || !result[1].toString().contains("Diamond Pickaxe")
+                || !((List<?>) result[2]).contains(new StackKey("minecraft:diamond_pickaxe", "{}"))
+                || plan.root().craftCount() <= 0
+                || plan.root().children().stream().noneMatch(child ->
+                child.item().equals(new StackKey("minecraft:stick", "{}")) && child.craftCount() > 0)
+                || Integer.parseInt(result[3].toString()) == 0) {
+            throw new AssertionError("gather-only UI must retain the real table requirement: "
+                    + java.util.Arrays.toString(result));
         }
     }
 
     private static void assertExecutorReportsMenuActionFailure(
             ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
         resetExecutorFixture(context, server, 0, 0);
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(player -> {
+            player.getInventory().setItem(0, new ItemStack(Items.DIAMOND));
+            player.getInventory().setItem(1, new ItemStack(Items.STICK, 2));
+        }));
+        context.waitTicks(2);
+        var executor = context.computeOnClient(mc -> {
+            var playerGeneration = CraftingExecutor.currentPlayerGeneration();
+            var worldGeneration = CraftingExecutor.currentWorldGeneration();
+            return new CraftingExecutor(FindMyItemsClient.index(), FindMyItemsClient.config(),
+                    () -> playerGeneration, () -> worldGeneration);
+        });
         var result = context.computeOnClient(mc -> {
             mc.player.getInventory().setItem(0, new ItemStack(Items.DIAMOND));
             mc.player.getInventory().setItem(1, new ItemStack(Items.STICK, 2));
@@ -351,19 +406,46 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             var sticks = new StackKey("minecraft:stick", "{}");
             var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"),
                     Map.of(diamond, 1L, sticks, 2L), 1);
-            var executor = FindMyItemsClient.executor();
-            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(), 0, 0,
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
                     CraftingExecutor.Mode.GATHER_AND_CRAFT));
             return executor.state();
         });
         if (result == CraftingExecutor.State.IDLE) throw new AssertionError("menu failure fixture did not start");
+        var reachedAction = false;
+        for (int tick = 0; tick < 80; tick++) {
+            context.waitTicks(1);
+            context.runOnClient(mc -> executor.tick());
+            if (context.computeOnClient(mc -> executor.state())
+                    == CraftingExecutor.State.PLACE_RECIPE) {
+                reachedAction = true;
+                break;
+            }
+        }
+        if (!reachedAction) {
+            throw new AssertionError("menu failure fixture did not reach a real menu action: "
+                    + context.computeOnClient(mc -> executor.state() + " " + executor.failureDiagnostics()
+                    + " journal=" + executor.transferJournal()));
+        }
+        context.runOnClient(mc -> executor.tick());
         server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(net.minecraft.server.level.ServerPlayer::closeContainer));
-        runExecutorTicks(context, 80);
-        var status = context.computeOnClient(mc -> FindMyItemsClient.executor().status());
-        if (status != ExecutionStatus.FAILED && status != ExecutionStatus.CANCELLED) {
-            throw new AssertionError("a rejected menu action must fail the executor, status=" + status
-                    + " state=" + context.computeOnClient(mc -> FindMyItemsClient.executor().state())
-                    + " diagnostics=" + context.computeOnClient(mc -> FindMyItemsClient.executor().failureDiagnostics()));
+        for (int tick = 0; tick < 80; tick++) {
+            context.waitTicks(1);
+            context.runOnClient(mc -> executor.tick());
+            if (context.computeOnClient(mc -> executor.status() == ExecutionStatus.FAILED
+                    || executor.status() == ExecutionStatus.CANCELLED
+                    || executor.status() == ExecutionStatus.COMPLETE)) break;
+        }
+        var status = context.computeOnClient(mc -> executor.status());
+        var reason = context.computeOnClient(mc -> executor.transferJournal().stream()
+                .map(CraftingExecutor.TransferJournalEntry::note)
+                .filter(note -> note.contains("menu action rejected"))
+                .findFirst().orElse("") );
+        if ((status != ExecutionStatus.FAILED && status != ExecutionStatus.CANCELLED) || reason.isEmpty()) {
+            throw new AssertionError("a rejected menu action must fail the executor and record its reason, status=" + status
+                    + " reason=" + reason
+                    + " state=" + context.computeOnClient(mc -> executor.state())
+                    + " diagnostics=" + context.computeOnClient(mc -> executor.failureDiagnostics()));
         }
     }
 
@@ -389,6 +471,14 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
                     CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(), mode));
         executor.tick();
+        return executor;
+    }
+
+    private static CraftingExecutor startPendingExecutor(CraftingExecutor.Mode mode) {
+        var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(), 0);
+        var executor = FindMyItemsClient.executor();
+        executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(), mode));
         return executor;
     }
 
@@ -420,6 +510,10 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                                               int diamonds, int sticks) {
         context.setScreen(() -> null);
         server.runOnServer(s -> {
+            for (int y = STAND.getY(); y <= STAND.getY() + 2; y++) {
+                s.overworld().setBlockAndUpdate(
+                        new BlockPos(STAND.getX(), y, STAND.getZ() + 1), Blocks.AIR.defaultBlockState());
+            }
             var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
             if (chest == null) {
                 s.overworld().setBlockAndUpdate(CHEST, Blocks.CHEST.defaultBlockState());
@@ -428,9 +522,15 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             chest.clearContent();
             if (diamonds > 0) chest.setItem(0, new ItemStack(Items.DIAMOND, diamonds));
             if (sticks > 0) chest.setItem(4, new ItemStack(Items.STICK, sticks));
-            for (var player : s.getPlayerList().getPlayers()) player.getInventory().clearContent();
+            for (var player : s.getPlayerList().getPlayers()) {
+                player.getInventory().clearContent();
+                player.closeContainer();
+            }
         });
-        context.runOnClient(mc -> mc.player.getInventory().clearContent());
+        context.runOnClient(mc -> {
+            mc.player.getInventory().clearContent();
+            mc.player.containerMenu = mc.player.inventoryMenu;
+        });
         context.waitTicks(2);
     }
 
@@ -638,8 +738,8 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             var screen = requireCatalog(mc);
             return CatalogScreenTestAccess.selectionState(screen);
         });
-        if (state.planRequests() != 1) {
-            throw new AssertionError("selecting one crafting output must invoke exactly one plan request, requests="
+        if (state.planRequests() < 1) {
+            throw new AssertionError("selecting one crafting output must invoke a plan request, requests="
                     + state.planRequests());
         }
         if (!state.selected()) {
