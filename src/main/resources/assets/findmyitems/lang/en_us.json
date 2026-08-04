@@ -67,6 +67,7 @@
   "screen.findmyitems.footer.craft_index": "%d items · click one to break it down into materials",
   "screen.findmyitems.craft.gather_materials": "Gather materials",
   "screen.findmyitems.craft.gather_and_craft": "Gather and craft",
+  "screen.findmyitems.craft.table_required": "Gathering materials; crafting table required for: %s",
   "screen.findmyitems.craft.known_in_storage": "Known in storage: %d",
   "screen.findmyitems.craft.reachable_now": "Reachable now",
   "screen.findmyitems.craft.unavailable": "Unavailable",

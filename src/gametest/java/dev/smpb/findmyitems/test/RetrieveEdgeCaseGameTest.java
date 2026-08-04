@@ -197,7 +197,7 @@ public final class RetrieveEdgeCaseGameTest {
     public void retrievePathMovesThroughMultipleNestedContainersWithoutTouchingCursor(GameTestHelper helper) {
         var player = playerNextToChest(helper);
         var buried = new ItemStack(Items.GOLD_INGOT, 5);
-        for (int depth = 0; depth < 3; depth++) {
+        for (int depth = 0; depth < 4; depth++) {
             var box = new ItemStack(Items.SHULKER_BOX);
             box.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(buried)));
             buried = box;
@@ -207,7 +207,7 @@ public final class RetrieveEdgeCaseGameTest {
         var beforeGold = chest.getItem(0).get(DataComponents.CONTAINER);
 
         var moved = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
-                ContainerKind.CHEST, List.of(0, 0, 0, 0), "minecraft:gold_ingot", "{}", 5, 0);
+                ContainerKind.CHEST, List.of(0, 0, 0, 0, 0), "minecraft:gold_ingot", "{}", 5, 0);
 
         helper.assertTrue(moved == 5, "all nested gold should move, moved " + moved);
         helper.assertTrue(player.getInventory().countItem(Items.GOLD_INGOT) == 5,

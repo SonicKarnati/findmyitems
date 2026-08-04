@@ -821,7 +821,8 @@ public final class CatalogScreen extends Screen {
         var tableItems = new LinkedHashSet<String>();
         collectTableRequirements(node, catalog, tableItems);
         if (tableItems.isEmpty()) return Component.translatable("screen.findmyitems.craft.gather_materials").getString();
-        return "Gathering materials; crafting table required for: " + String.join(", ", tableItems);
+        return Component.translatable("screen.findmyitems.craft.table_required",
+                String.join(", ", tableItems)).getString();
     }
 
     private void collectTableRequirements(CraftingPlan.Node node, RecipeCatalog catalog, Set<String> tableItems) {

@@ -156,6 +156,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             assertCancellationConservesSourceAndPlayerTotals(context, server);
             assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(context, server);
             assertExecutorReportsMenuActionFailure(context, server);
+            assertExecutorTimesOutWhenMenuCallbackIsDelayed(context, server);
         }
     }
 
@@ -464,6 +465,64 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                     + " reason=" + reason
                     + " state=" + context.computeOnClient(mc -> executor.state())
                     + " diagnostics=" + context.computeOnClient(mc -> executor.failureDiagnostics()));
+        }
+    }
+
+    private static void assertExecutorTimesOutWhenMenuCallbackIsDelayed(
+            ClientGameTestContext context,
+            net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 0, 0);
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(player -> {
+            player.getInventory().setItem(0, new ItemStack(Items.DIAMOND));
+            player.getInventory().setItem(1, new ItemStack(Items.STICK, 2));
+        }));
+        context.waitTicks(2);
+        var executor = context.computeOnClient(mc -> {
+            mc.player.getInventory().setItem(0, new ItemStack(Items.DIAMOND));
+            mc.player.getInventory().setItem(1, new ItemStack(Items.STICK, 2));
+            var newExecutor = new CraftingExecutor(FindMyItemsClient.index(), FindMyItemsClient.config(),
+                    CraftingExecutor::currentPlayerGeneration, CraftingExecutor::currentWorldGeneration);
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var sticks = new StackKey("minecraft:stick", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"),
+                    Map.of(diamond, 1L, sticks, 2L), 1);
+            newExecutor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_AND_CRAFT));
+            return newExecutor;
+        });
+        for (int tick = 0; tick < 80; tick++) {
+            context.waitTicks(1);
+            context.runOnClient(mc -> executor.tick());
+            if (context.computeOnClient(mc -> executor.state()) == CraftingExecutor.State.PLACE_RECIPE) break;
+        }
+        if (context.computeOnClient(mc -> executor.state()) != CraftingExecutor.State.PLACE_RECIPE) {
+            throw new AssertionError("delayed-callback fixture did not reach a menu action");
+        }
+        context.runOnClient(mc -> executor.tick());
+        context.runOnClient(mc -> {
+            try {
+                var token = CraftingExecutor.class.getDeclaredField("runToken");
+                token.setAccessible(true);
+                token.setLong(executor, token.getLong(executor) + 1);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("could not suppress the menu callback", exception);
+            }
+        });
+
+        for (int tick = 0; tick < 80; tick++) {
+            context.waitTicks(1);
+            context.runOnClient(mc -> executor.tick());
+            var status = context.computeOnClient(mc -> executor.status());
+            if (status == ExecutionStatus.FAILED || status == ExecutionStatus.CANCELLED) break;
+        }
+        var status = context.computeOnClient(mc -> executor.status());
+        var timedOut = context.computeOnClient(mc -> executor.transferJournal().stream()
+                .map(CraftingExecutor.TransferJournalEntry::note)
+                .anyMatch(note -> note.contains("timed out")));
+        if (status != ExecutionStatus.FAILED || !timedOut) {
+            throw new AssertionError("a lost menu callback must time out: status=" + status
+                    + " journal=" + context.computeOnClient(mc -> executor.transferJournal()));
         }
     }
 

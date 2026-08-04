@@ -81,6 +81,9 @@ Status: DONE
 - Catalog action widgets clear stale plans during replanning and refresh on executor terminal transitions; active index refreshes retain operation status.
 - Menu action callbacks have a bounded timeout, and nested retrieval paths enforce the same maximum depth as indexing.
 - Multi-level nested retrieval coverage preserves the menu cursor and verifies the transfer boundary.
+- The maximum indexed path is root plus four nested levels; that boundary transfers successfully and deeper malformed paths are rejected.
+- A real menu action with its callback token invalidated remains pending only until `ACTION_TIMEOUT`, then fails with a journaled timeout rather than hanging.
+- Gather-only table-required status is localized through the English language bundle.
 
 ## Final Verification
 
