@@ -143,4 +143,17 @@ public final class InventorySimulationGameTest {
                 "potion to output plus bottle was not conserved");
         helper.succeed();
     }
+
+    @GameTest(structure = EMPTY_STRUCTURE)
+    public void snapshotTemplateAccessorReturnsDefensiveCopies(GameTestHelper helper) {
+        var output = key("minecraft:emerald");
+        var snapshot = InventorySimulation.PlayerInventorySnapshot.of(emptySlots(),
+                new ArrayList<>(Collections.nCopies(36, null)), Map.of(output, new ItemStack(Items.EMERALD)),
+                helper.getLevel().registryAccess());
+        snapshot.templates().get(output).setCount(37);
+
+        helper.assertTrue(snapshot.templates().get(output).getCount() == 1,
+                "mutating a returned template changed the snapshot");
+        helper.succeed();
+    }
 }

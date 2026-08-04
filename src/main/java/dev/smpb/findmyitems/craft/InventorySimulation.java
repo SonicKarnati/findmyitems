@@ -158,6 +158,12 @@ public final class InventorySimulation {
             return copySlots();
         }
 
+        @Override
+        public Map<StackKey, ItemStack> templates() {
+            return templates.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                    Map.Entry::getKey, entry -> entry.getValue().copy()));
+        }
+
         private List<ItemStack> copySlots() {
             return slots.stream().map(ItemStack::copy).toList();
         }
