@@ -152,8 +152,8 @@ public final class CraftingPlanner {
             }
             if (!childrenSatisfied) {
                 var node = CraftingPlan.node(output, requested, indexed, crafts, children,
-                        consumed, surplus, conversionSource);
-                return new PlanningState(node, current, consumed, surplus, Map.of(), missing, 0, false);
+                        Map.of(), Map.of(), conversionSource);
+                return new PlanningState(node, state, Map.of(), Map.of(), Map.of(), missing, 0, false);
             }
             var produced = Math.multiplyExact(crafts, recipe.outputBatch());
             var extra = Math.subtractExact(produced, shortfall);

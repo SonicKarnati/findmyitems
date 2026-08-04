@@ -1,5 +1,10 @@
 # Task 3 Reviewer-Fix Report
 
+## Atomicity Follow-Up
+
+- Recipe candidate evaluation now rolls back to the candidate's starting inventory when any sibling child is missing. Child consumption, generated surplus, and remainders are committed only after all children succeed.
+- Added a partial-child-success regression asserting the missing sibling leaves the original input inventory unchanged and all candidate deltas empty.
+
 ## Conservation Follow-Up
 
 - Candidate output surplus is now committed only after every ingredient child is satisfied. Missing-input candidates return neither generated output nor recipe remainders.
@@ -35,16 +40,16 @@
 Commands ran serially in the requested order after the final source change:
 
 1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
-   - `BUILD SUCCESSFUL in 2s`
-   - 20 focused planner/display tests passed, including the zero-surplus missing-input regression.
+   - `BUILD SUCCESSFUL in 1s`
+   - 21 focused planner/display tests passed, including the partial-child rollback regression.
 2. `./gradlew test`
    - `BUILD SUCCESSFUL in 4s`
    - Full JUnit suite passed.
 3. `./gradlew build`
-   - `BUILD SUCCESSFUL in 10s`
+   - `BUILD SUCCESSFUL in 11s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 4. `./gradlew runGameTest`
-   - `BUILD SUCCESSFUL in 11s`
+   - `BUILD SUCCESSFUL in 9s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 
 `git diff --check` passed.

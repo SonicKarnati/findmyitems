@@ -241,6 +241,28 @@ final class CraftingPlannerTest {
     }
 
     @Test
+    void partialChildSuccessRollsBackTheWholeCandidate() {
+        var output = key("example:output");
+        var good = key("example:good");
+        var goodInput = key("example:good_input");
+        var missing = key("example:missing");
+        var goodRemainder = key("example:good_remainder");
+        var catalog = catalog(
+                recipe("example:output", 1, new String[]{"example:good"}, new String[]{"example:missing"}),
+                RecipeCatalog.recipe(good, 2, List.of(List.of(goodInput)), RecipeCatalog.Station.INVENTORY, 2, 2,
+                        Map.of(goodRemainder, 1L)));
+        var initial = PlanningInventory.of(Map.of(goodInput, 1L));
+
+        var plan = CraftingPlanner.plan(catalog, output, 1, initial, PlanningPolicy.DEFAULT);
+
+        assertEquals(1, plan.missing("example:missing"));
+        assertTrue(plan.consumedDelta().isEmpty());
+        assertTrue(plan.surplusDelta().isEmpty());
+        assertTrue(plan.remainders().isEmpty());
+        assertEquals(1, plan.remainingInventory().count(goodInput));
+    }
+
+    @Test
     void cancellationStopsCandidateEvaluation() {
         var plan = CraftingPlanner.plan(catalog(recipe("example:output", 1, new String[]{"example:input"})),
                 key("example:output"), 1, PlanningInventory.empty(), PlanningPolicy.DEFAULT, () -> true);
