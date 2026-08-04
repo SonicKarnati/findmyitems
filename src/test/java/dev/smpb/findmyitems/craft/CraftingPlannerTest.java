@@ -204,6 +204,40 @@ final class CraftingPlannerTest {
     }
 
     @Test
+    void missingIngredientDoesNotReturnRecipeRemainders() {
+        var input = key("example:input");
+        var remainder = key("example:remainder");
+        var output = key("example:output");
+        var catalog = catalog(RecipeCatalog.recipe(output, 2,
+                List.of(List.of(input)), RecipeCatalog.Station.INVENTORY, 2, 2,
+                Map.of(remainder, 1L)));
+
+        var plan = CraftingPlanner.plan(catalog, output, 1, PlanningInventory.empty(), PlanningPolicy.DEFAULT);
+
+        assertEquals(1, plan.missing("example:input"));
+        assertTrue(plan.remainders().isEmpty());
+        assertEquals(0, plan.remainingInventory().count(remainder));
+    }
+
+    @Test
+    void laterAllowedRecipeIsEvaluatedAfterDisallowedRecipe() {
+        var output = key("example:output");
+        var material = key("example:material");
+        var catalog = catalog(
+                RecipeCatalog.recipe(output, 1, List.of(List.of(material)),
+                        RecipeCatalog.Station.CRAFTING_TABLE, 3, 3, Map.of()),
+                RecipeCatalog.recipe(output, 1, List.of(List.of(material)),
+                        RecipeCatalog.Station.INVENTORY, 2, 2, Map.of()));
+
+        var plan = CraftingPlanner.plan(catalog, output, 1,
+                PlanningInventory.of(Map.of(material, 1L)),
+                new PlanningPolicy(false, true, 64));
+
+        assertTrue(plan.missing().isEmpty());
+        assertEquals(1, plan.root().craftCount());
+    }
+
+    @Test
     void cancellationStopsCandidateEvaluation() {
         var plan = CraftingPlanner.plan(catalog(recipe("example:output", 1, new String[]{"example:input"})),
                 key("example:output"), 1, PlanningInventory.empty(), PlanningPolicy.DEFAULT, () -> true);

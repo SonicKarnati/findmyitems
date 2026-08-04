@@ -1,5 +1,11 @@
 # Task 3 Reviewer-Fix Report
 
+## Final Follow-Up
+
+- Candidates with missing ingredient children no longer return recipe remainders. Generated output surplus behavior remains unchanged; only unsupported remainder returns are suppressed.
+- Disallowed recipes are skipped with `continue`, so later allowed alternatives are evaluated under the active station policy.
+- Added regressions for missing-input remainder conservation and mixed-policy recipe alternatives.
+
 ## Follow-Up Fix
 
 - `RecipeCatalog.from` now derives remainder mappings per ingredient alternative by evaluating the live crafting recipe's remaining-item behavior. The planner applies only the mapping for the selected ingredient, rather than aggregating all alternatives.
@@ -25,15 +31,15 @@ Commands ran serially in the requested order after the final source change:
 
 1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
    - `BUILD SUCCESSFUL in 1s`
-   - Focused planner/display tests passed, including the selected-alternative remainder regression.
+   - 20 focused planner/display tests passed, including both final regressions.
 2. `./gradlew test`
-   - `BUILD SUCCESSFUL in 3s`
+   - `BUILD SUCCESSFUL in 6s`
    - Full JUnit suite passed.
 3. `./gradlew build`
-   - `BUILD SUCCESSFUL in 9s`
+   - `BUILD SUCCESSFUL in 10s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 4. `./gradlew runGameTest`
-   - `BUILD SUCCESSFUL in 8s`
+   - `BUILD SUCCESSFUL in 9s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 
 `git diff --check` passed.

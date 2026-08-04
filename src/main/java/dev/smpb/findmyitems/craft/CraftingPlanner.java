@@ -64,7 +64,8 @@ public final class CraftingPlanner {
 
         var best = new Best();
         for (var recipe : catalog.recipesFor(item)) {
-            if (!allowed(recipe, policy) || budget[0] == 0) break;
+            if (budget[0] == 0) break;
+            if (!allowed(recipe, policy)) continue;
             evaluateChoices(catalog, recipe, item, requested, indexed, shortfall, stock,
                     policy, path, cancelled, memo, budget, new ArrayList<>(), 0, best);
             if (cancelled.getAsBoolean()) break;
@@ -131,6 +132,7 @@ public final class CraftingPlanner {
         var surplus = new LinkedHashMap<StackKey, Long>();
         var remainders = new LinkedHashMap<StackKey, Long>();
         StackKey conversionSource = null;
+        var childrenSatisfied = true;
         try {
             for (var entry : quantities.entrySet()) {
                 if (cancelled.getAsBoolean()) return null;
@@ -145,6 +147,7 @@ public final class CraftingPlanner {
                 merge(surplus, child.surplus);
                 merge(remainders, child.remainders);
                 current = child.inventory;
+                if (!child.missing.isEmpty()) childrenSatisfied = false;
                 if (child.cancelled) return child;
             }
             var produced = Math.multiplyExact(crafts, recipe.outputBatch());
@@ -152,6 +155,11 @@ public final class CraftingPlanner {
             if (extra > 0) {
                 current = current.add(output, extra);
                 merge(surplus, Map.of(output, extra));
+            }
+            if (!childrenSatisfied) {
+                var node = CraftingPlan.node(output, requested, indexed, crafts, children,
+                        consumed, surplus, conversionSource);
+                return new PlanningState(node, current, consumed, surplus, Map.of(), missing, 0, false);
             }
             for (var ingredient : selected) {
                 var selectedRemainders = recipe.alternativeRemainders().get(ingredient);
