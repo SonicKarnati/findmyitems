@@ -15,7 +15,8 @@ public final class ViewportLayout {
             return new Layout(top, bottom, rowHeight, 0, 0, 0, -1, List.of());
         }
         var maximum = Math.max(0, rowCount * (long) rowHeight - height);
-        var clamped = Math.max(0, Math.min(maximum, scroll));
+        var requestedScroll = Double.isNaN(scroll) ? 0 : scroll;
+        var clamped = Math.max(0, Math.min(maximum, requestedScroll));
         var firstVisible = Math.max(0, (int) Math.floor(clamped / rowHeight));
         var lastVisible = Math.min(rowCount - 1, (int) Math.ceil((clamped + height) / rowHeight) - 1);
         var first = Math.max(0, firstVisible - Math.max(0, overscan));

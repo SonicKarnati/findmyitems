@@ -31,8 +31,10 @@ public final class InventorySimulationGameTest {
 
     private static InventorySimulation.PlayerInventorySnapshot snapshot(List<ItemStack> stacks,
                                                                          List<StackKey> keys,
-                                                                         Map<StackKey, ItemStack> templates) {
-        return InventorySimulation.PlayerInventorySnapshot.of(stacks, keys, templates);
+                                                                         Map<StackKey, ItemStack> templates,
+                                                                         GameTestHelper helper) {
+        return InventorySimulation.PlayerInventorySnapshot.of(stacks, keys, templates,
+                helper.getLevel().registryAccess());
     }
 
     private static List<ItemStack> emptySlots() {
@@ -51,7 +53,7 @@ public final class InventorySimulationGameTest {
         keys.set(0, output);
         keys.set(1, input);
         var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(
-                output, new ItemStack(Items.EMERALD), remainder, new ItemStack(Items.BUCKET))),
+                output, new ItemStack(Items.EMERALD), remainder, new ItemStack(Items.BUCKET)), helper),
                 plan(output, 10, Map.of(input, 1L), Map.of(output, 3L), Map.of(remainder, 1L)));
 
         helper.assertTrue(result.safe(), result.failureReason());
@@ -69,13 +71,13 @@ public final class InventorySimulationGameTest {
         var absent = key("minecraft:diamond");
         var stacks = emptySlots();
         var keys = new ArrayList<StackKey>(Collections.nCopies(36, null));
-        var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD))),
+        var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD)), helper),
                 plan(output, 1, Map.of(absent, 1L), Map.of(), Map.of()));
         helper.assertTrue(!result.safe() && result.failureReason().contains("source"), "absent source was accepted");
 
         stacks.set(0, new ItemStack(Items.DIAMOND_SWORD));
         keys.set(0, new StackKey("minecraft:diamond_sword", "{}"));
-        var incompatible = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD))),
+        var incompatible = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD)), helper),
                 plan(output, 1, Map.of(new StackKey("minecraft:diamond_sword", "{sharpness:5}"), 1L), Map.of(), Map.of()));
         helper.assertTrue(!incompatible.safe(), "incompatible component source was accepted");
         helper.succeed();
@@ -91,10 +93,25 @@ public final class InventorySimulationGameTest {
             stacks.add(new ItemStack(Items.COBBLESTONE, 64));
             keys.add(filler);
         }
-        var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD))),
+        var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD)), helper),
                 plan(output, 1, Map.of(), Map.of(), Map.of()));
         helper.assertTrue(!result.safe(), "full inventory was accepted");
         helper.assertTrue(result.requiredFreeSlots() == 1, "wrong free slot count");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE)
+    public void mismatchedTemplateCannotSatisfyRequestedKey(GameTestHelper helper) {
+        var output = key("minecraft:emerald");
+        var rejected = false;
+        try {
+            InventorySimulation.PlayerInventorySnapshot.of(emptySlots(),
+                    new ArrayList<>(Collections.nCopies(36, null)),
+                    Map.of(output, new ItemStack(Items.DIAMOND)), helper.getLevel().registryAccess());
+        } catch (IllegalArgumentException expected) {
+            rejected = true;
+        }
+        helper.assertTrue(rejected, "mismatched template was trusted");
         helper.succeed();
     }
 }

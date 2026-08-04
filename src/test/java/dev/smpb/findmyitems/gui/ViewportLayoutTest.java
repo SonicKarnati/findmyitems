@@ -58,4 +58,16 @@ final class ViewportLayoutTest {
         assertEquals(OptionalInt.empty(), layout.hitTest(-1, 20));
         assertEquals(OptionalInt.empty(), layout.hitTest(1, Double.POSITIVE_INFINITY));
     }
+
+    @Test
+    void nonFiniteScrollIsReplacedWithAClampedFiniteValue() {
+        var nan = ViewportLayout.layout(0, 40, 20, 5, Double.NaN, 0);
+        var positiveInfinity = ViewportLayout.layout(0, 40, 20, 5, Double.POSITIVE_INFINITY, 0);
+        var negativeInfinity = ViewportLayout.layout(0, 40, 20, 5, Double.NEGATIVE_INFINITY, 0);
+
+        assertEquals(0, nan.scroll());
+        assertEquals(60, positiveInfinity.scroll());
+        assertEquals(0, negativeInfinity.scroll());
+        assertTrue(Double.isFinite(nan.scroll()));
+    }
 }

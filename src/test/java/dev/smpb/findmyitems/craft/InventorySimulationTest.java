@@ -19,11 +19,19 @@ final class InventorySimulationTest {
     @Test
     void snapshotCopiesTheThirtySixStorageSlots() {
         var input = new ArrayList<>(java.util.Collections.nCopies(36, ItemStack.EMPTY));
-        var snapshot = InventorySimulation.PlayerInventorySnapshot.of(input);
+        var snapshot = InventorySimulation.PlayerInventorySnapshot.of(input,
+                new ArrayList<>(java.util.Collections.nCopies(36, null)));
         input.clear();
 
         assertEquals(36, snapshot.slots().size());
         assertThrows(UnsupportedOperationException.class, () -> snapshot.slots().add(ItemStack.EMPTY));
+    }
+
+    @Test
+    void nonProviderSnapshotFactoryCannotPretendToKnowRegistryIdentity() {
+        var input = new ArrayList<>(java.util.Collections.nCopies(36, ItemStack.EMPTY));
+
+        assertThrows(IllegalArgumentException.class, () -> InventorySimulation.PlayerInventorySnapshot.of(input));
     }
 
     @Test
@@ -34,7 +42,8 @@ final class InventorySimulationTest {
                         Map.of(source, 1L), Map.of(), null), PlanningInventory.empty(), Map.of(source, 1L),
                 Map.of(), Map.of(), new PlanScore(0, 0, 0, 0, 0));
 
-        var result = InventorySimulation.simulate(InventorySimulation.PlayerInventorySnapshot.of(input), plan);
+        var result = InventorySimulation.simulate(InventorySimulation.PlayerInventorySnapshot.of(input,
+                new ArrayList<>(java.util.Collections.nCopies(36, null))), plan);
 
         assertFalse(result.safe());
         assertEquals(0, result.requiredFreeSlots());

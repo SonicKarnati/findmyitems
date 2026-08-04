@@ -106,18 +106,16 @@ public final class InventorySimulation {
         }
     }
 
-    private static String itemId(ItemStack stack) {
-        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-    }
-
     public record PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys,
-                                          Map<StackKey, ItemStack> templates) {
-        public PlayerInventorySnapshot(List<ItemStack> slots) {
-            this(slots, plainKeys(slots), Map.of());
+                                          Map<StackKey, ItemStack> templates,
+                                          HolderLookup.Provider registries) {
+        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys) {
+            this(slots, keys, Map.of(), null);
         }
 
-        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys) {
-            this(slots, keys, Map.of());
+        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys,
+                                       Map<StackKey, ItemStack> templates) {
+            this(slots, keys, templates, null);
         }
 
         public PlayerInventorySnapshot {
@@ -127,10 +125,17 @@ public final class InventorySimulation {
             keys = java.util.Collections.unmodifiableList(new ArrayList<>(keys));
             templates = templates.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
                     Map.Entry::getKey, entry -> entry.getValue().copyWithCount(1)));
+            if (!templates.isEmpty() && registries == null) {
+                throw new IllegalArgumentException("registry access is required for snapshot templates");
+            }
+            if (registries != null && templates.entrySet().stream()
+                    .anyMatch(entry -> !entry.getKey().equals(key(entry.getValue(), registries)))) {
+                throw new IllegalArgumentException("snapshot template does not match its StackKey");
+            }
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots) {
-            return new PlayerInventorySnapshot(slots);
+            throw new IllegalArgumentException("registry access is required for inventory snapshots");
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys) {
@@ -142,9 +147,15 @@ public final class InventorySimulation {
             return new PlayerInventorySnapshot(slots, keys, templates);
         }
 
+        public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys,
+                                                 Map<StackKey, ItemStack> templates,
+                                                 HolderLookup.Provider registries) {
+            return new PlayerInventorySnapshot(slots, keys, templates, registries);
+        }
+
         public static PlayerInventorySnapshot of(List<ItemStack> slots, HolderLookup.Provider registries) {
             var keys = slots.stream().map(stack -> stack.isEmpty() ? null : key(stack, registries)).toList();
-            return new PlayerInventorySnapshot(slots, keys);
+            return new PlayerInventorySnapshot(slots, keys, Map.of(), registries);
         }
 
         @Override
@@ -156,16 +167,9 @@ public final class InventorySimulation {
             return slots.stream().map(ItemStack::copy).toList();
         }
 
-        private static List<StackKey> plainKeys(List<ItemStack> slots) {
-            if (slots.stream().anyMatch(stack -> !stack.isEmpty())) {
-                throw new IllegalArgumentException("registry access is required for non-empty inventory snapshots");
-            }
-            return java.util.Collections.unmodifiableList(new ArrayList<>(java.util.Collections.nCopies(
-                    slots.size(), (StackKey) null)));
-        }
-
         private static StackKey key(ItemStack stack, HolderLookup.Provider registries) {
-            return new StackKey(itemId(stack), SlotReader.serializeComponents(stack.getComponentsPatch(), registries));
+            return new StackKey(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
+                    SlotReader.serializeComponents(stack.getComponentsPatch(), registries));
         }
     }
 
