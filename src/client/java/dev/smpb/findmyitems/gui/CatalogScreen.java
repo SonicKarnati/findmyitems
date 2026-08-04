@@ -13,10 +13,12 @@ import dev.smpb.findmyitems.index.ContainerIndex;
 import dev.smpb.findmyitems.index.IndexedContainer;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.index.SourceResult;
+import dev.smpb.findmyitems.index.SearchQuery;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.model.ContainerObservation;
 import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
+import dev.smpb.findmyitems.model.StackSnapshot;
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
 import dev.smpb.findmyitems.retrieval.CraftingExecutor;
@@ -24,6 +26,7 @@ import dev.smpb.findmyitems.retrieval.ExecutionStatus;
 import dev.smpb.findmyitems.retrieval.ReachabilityService;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
 import dev.smpb.findmyitems.retrieval.TargetKind;
+import dev.smpb.findmyitems.search.SearchIndex;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -686,14 +689,14 @@ public final class CatalogScreen extends Screen {
             return List.of();
         }
 
-        var needle = currentQuery.strip().toLowerCase(Locale.ROOT);
         var catalog = recipeCatalog(server.getRecipeManager(), level);
         seenRecipeGeneration = catalog.generation();
-        return catalog.craftableRoots().stream()
-                .sorted(Comparator.comparing(key -> buildStack(key).getHoverName().getString(),
-                        String.CASE_INSENSITIVE_ORDER))
-                .filter(key -> needle.isEmpty() || rootMatches(key, needle))
+        var roots = catalog.craftableRoots();
+        var snapshots = roots.stream()
+                .map(key -> new StackSnapshot(key, 1, buildStack(key).getHoverName().getString(), List.of()))
                 .toList();
+        return SearchIndex.rootOnly(snapshots, roots).search(SearchQuery.parse(currentQuery), roots.size())
+                .stream().map(document -> document.key()).toList();
     }
 
     void selectOutput(StackKey key) {
@@ -827,7 +830,7 @@ public final class CatalogScreen extends Screen {
     }
 
     private void collectTableRequirements(CraftingPlan.Node node, RecipeCatalog catalog, Set<String> tableItems) {
-        var recipe = catalog == null ? null : catalog.recipesFor(node.item()).stream().findFirst().orElse(null);
+        var recipe = node.selectedRecipe();
         if (node.craftCount() > 0 && recipe != null && recipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
             tableItems.add(buildStack(node.item()).getHoverName().getString());
         }
@@ -840,12 +843,6 @@ public final class CatalogScreen extends Screen {
             FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SCREEN_CLOSED);
         }
         super.onClose();
-    }
-
-    private boolean rootMatches(StackKey key, String needle) {
-        var stack = buildStack(key);
-        return key.itemId().toLowerCase(Locale.ROOT).contains(needle.replace(' ', '_'))
-                || stack.getHoverName().getString().toLowerCase(Locale.ROOT).contains(needle);
     }
 
     private RecipeCatalog recipeCatalog(RecipeManager recipes, Level level) {

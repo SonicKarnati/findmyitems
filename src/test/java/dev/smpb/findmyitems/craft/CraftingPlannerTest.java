@@ -206,6 +206,26 @@ final class CraftingPlannerTest {
     }
 
     @Test
+    void planRetainsTheSelectedRecipeAlternativeAndItsBatchData() {
+        var output = key("example:output");
+        var unavailable = key("example:unavailable");
+        var selected = key("example:selected");
+        var remainder = key("example:remainder");
+        var first = RecipeCatalog.recipeWithAlternativeRemainders(output, 2,
+                List.of(List.of(unavailable, selected)), RecipeCatalog.Station.INVENTORY, 2, 2,
+                Map.of(unavailable, Map.of(unavailable, 1L), selected, Map.of(remainder, 1L)));
+        var catalog = catalog(first);
+
+        var plan = CraftingPlanner.plan(catalog, output, 3,
+                PlanningInventory.of(Map.of(selected, 2L)), PlanningPolicy.DEFAULT);
+
+        assertEquals(first, plan.root().selectedRecipe());
+        assertEquals(List.of(selected), plan.root().selectedIngredients());
+        assertEquals(2, plan.root().craftCount());
+        assertEquals(Map.of(remainder, 2L), plan.root().generatedRemainders());
+    }
+
+    @Test
     void missingIngredientDoesNotReturnRecipeRemainders() {
         var input = key("example:input");
         var remainder = key("example:remainder");

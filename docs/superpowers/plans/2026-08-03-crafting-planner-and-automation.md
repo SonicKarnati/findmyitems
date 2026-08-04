@@ -617,3 +617,16 @@ Do not push, tag, create a GitHub release, or retry a failed publication blindly
 - Headless, client, and manual verification are covered by Task 8 and final serial gates in Task 9.
 - Release metadata, dry-run publishing, artifact inspection, and explicit publication approval are covered by Task 9.
 - No task claims support for unsupported recipe stations or multiplayer.
+
+## Final Review Closure
+
+- [x] Colored `ShulkerBoxBlock` reachability, locating, retrieval, and gathering paths accept every
+  shulker color; server GameTest coverage includes a purple shulker target.
+- [x] Crafting nodes retain the selected recipe, ingredient alternatives, batch count, remainders,
+  and surplus; the executor consumes that immutable selection and never reselects the first recipe.
+- [x] Crafting root browse/filter uses `SearchQuery` and `SearchIndex` ranking. Unit coverage includes
+  `whit bed`, repeated whitespace, exact/root ordering, and ingredient-only exclusion.
+- [x] Nested retrieval preserves physical empty slots and exact provenance paths through transfer and
+  reconciliation; repeated nested retrieval coverage verifies stable paths.
+- [x] Verification: `./gradlew test`, `./gradlew build`, `./gradlew runGameTest` (55 required tests),
+  `./gradlew runClientGameTest`, `./gradlew publishMods -PdryRun`, and `git diff --check` passed.

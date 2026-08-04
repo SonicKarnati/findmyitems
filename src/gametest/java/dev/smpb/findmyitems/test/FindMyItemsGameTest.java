@@ -194,6 +194,19 @@ public final class FindMyItemsGameTest {
     }
 
     @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void reachabilityAcceptsColoredShulkerBlock(GameTestHelper helper) {
+        helper.setBlock(CHEST, Blocks.DYED_SHULKER_BOX.purple());
+        var pos = helper.absolutePos(CHEST);
+        var player = playerNextToChest(helper);
+
+        var result = Reachability.check(helper.getLevel(), player, pos, dimension(helper),
+                TargetKind.CONTAINER, ContainerKind.SHULKER_BOX, 0);
+
+        helper.assertTrue(result.actionable(), "colored shulker blocks must be reachable: " + result);
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
     public void retrieveRefusesWrongContainerHandler(GameTestHelper helper) {
         var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
         var pos = helper.absolutePos(CHEST);
@@ -297,6 +310,26 @@ public final class FindMyItemsGameTest {
         var location = index.search("gold_ingot").getFirst().sources().getFirst().locations().getFirst();
         helper.assertTrue(location.stack().provenance().slots().equals(List.of(0, 0, 0)),
                 "index source locations must retain the exact nested physical path");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void repeatedNestedRetrievalPreservesPhysicalPaths(GameTestHelper helper) {
+        var outer = new ItemStack(Items.SHULKER_BOX);
+        outer.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(
+                ItemStack.EMPTY, new ItemStack(Items.DIAMOND, 2), new ItemStack(Items.DIAMOND, 3))));
+        var chest = placeChest(helper, outer);
+        var player = playerNextToChest(helper);
+
+        var first = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, List.of(0, 1), "minecraft:diamond", "{}", 1, 0);
+        var slots = SlotReader.readContainerSlots(chest, player);
+        var remaining = slots.stream().filter(slot -> slot.stack().key().itemId().equals("minecraft:diamond"))
+                .map(slot -> slot.stack().provenance().slots()).toList();
+
+        helper.assertTrue(first == 1, "first nested retrieval should move one item");
+        helper.assertTrue(remaining.equals(List.of(List.of(0, 1), List.of(0, 2))),
+                "nested paths must remain physical after a partial transfer: " + remaining);
         helper.succeed();
     }
 

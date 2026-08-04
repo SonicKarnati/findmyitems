@@ -5,6 +5,7 @@ import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
 import dev.smpb.findmyitems.craft.CraftingPlan;
+import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.craft.PlanScore;
 import dev.smpb.findmyitems.craft.PlanningInventory;
 import dev.smpb.findmyitems.index.ItemResult;
@@ -560,7 +561,13 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     }
 
     private static CraftingPlan executorPlan(StackKey output, Map<StackKey, Long> consumed, long craftCount) {
-        var node = CraftingPlan.node(output, 1, 0, craftCount, List.of(), consumed, Map.of(), null);
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        var catalog = RecipeCatalog.from(mc.getSingleplayerServer().getRecipeManager(), mc.level);
+        var recipe = catalog.recipesFor(output).stream().findFirst().orElse(null);
+        var selected = recipe == null ? List.<StackKey>of()
+                : recipe.ingredientOptions().stream().map(options -> options.getFirst()).toList();
+        var node = CraftingPlan.node(output, 1, 0, craftCount, List.of(), consumed, Map.of(), Map.of(),
+                null, recipe, selected, null);
         return CraftingPlan.of(node, PlanningInventory.empty(), consumed, Map.of(), Map.of(),
                 new PlanScore(0, 0, 0, 0, 0));
     }
@@ -700,7 +707,11 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             var output = new StackKey("minecraft:diamond_pickaxe", "{}");
             var diamonds = new StackKey("minecraft:diamond", "{}");
             var sticks = new StackKey("minecraft:stick", "{}");
-            var node = CraftingPlan.node(output, 1, 1, 1, List.of(), Map.of(), Map.of(), null);
+            var catalog = RecipeCatalog.from(mc.getSingleplayerServer().getRecipeManager(), mc.level);
+            var recipe = catalog.recipesFor(output).getFirst();
+            var selected = recipe.ingredientOptions().stream().map(options -> options.getFirst()).toList();
+            var node = CraftingPlan.node(output, 1, 1, 1, List.of(), Map.of(), Map.of(), Map.of(),
+                    null, recipe, selected, null);
             var plan = CraftingPlan.of(node, PlanningInventory.empty(),
                     Map.of(diamonds, 3L, sticks, 2L), Map.of(), Map.of(),
                     new PlanScore(0, 0, 1, 0, 1));

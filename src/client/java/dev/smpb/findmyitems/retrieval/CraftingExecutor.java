@@ -147,6 +147,7 @@ public final class CraftingExecutor {
     private boolean ingredientPlaced;
     private int sourceInventorySlot;
     private RecipeCatalog.RecipeDefinition activeRecipe;
+    private List<StackKey> activeIngredients = List.of();
     private boolean tableOpen;
     private List<StackKey> tableRequiredMaterials = List.of();
     private int actionsThisTick;
@@ -369,7 +370,7 @@ public final class CraftingExecutor {
         craftNodeIndex = 0;
         tableRequiredMaterials = craftNodes.stream()
                 .filter(node -> {
-                    var recipe = recipeFor(node.item());
+                    var recipe = node.selectedRecipe();
                     return recipe != null && recipe.station() == RecipeCatalog.Station.CRAFTING_TABLE;
                 })
                 .map(CraftingPlan.Node::item).distinct().toList();
@@ -512,14 +513,13 @@ public final class CraftingExecutor {
             cancel(CancelReason.SCREEN_CLOSED);
             return;
         }
-        var options = activeRecipe.ingredientOptions();
-        if (ingredientIndex >= options.size()) {
+        if (ingredientIndex >= activeIngredients.size()) {
             outputWait = 10;
             state = State.TAKE_OUTPUT;
             return;
         }
         if (!carryingIngredient) {
-            var inventorySlot = findInventorySlot(options.get(ingredientIndex));
+            var inventorySlot = findInventorySlot(List.of(activeIngredients.get(ingredientIndex)));
             if (inventorySlot < 0) {
                 fail("ingredient changed");
                 return;
@@ -600,7 +600,8 @@ public final class CraftingExecutor {
             return;
         }
         var node = craftNodes.get(craftNodeIndex);
-        activeRecipe = recipeFor(node.item());
+        activeRecipe = node.selectedRecipe();
+        activeIngredients = node.selectedIngredients();
         if (activeRecipe == null) {
             fail("recipe unavailable");
             return;
@@ -627,7 +628,7 @@ public final class CraftingExecutor {
 
     private boolean nextRecipeIsInventoryOrDone() {
         if (craftNodeIndex >= craftNodes.size()) return true;
-        var recipe = recipeFor(craftNodes.get(craftNodeIndex).item());
+        var recipe = craftNodes.get(craftNodeIndex).selectedRecipe();
         return recipe == null || recipe.station() == RecipeCatalog.Station.INVENTORY;
     }
 
@@ -699,13 +700,6 @@ public final class CraftingExecutor {
         }
         inventory.setChanged();
         return remainder;
-    }
-
-    private RecipeCatalog.RecipeDefinition recipeFor(StackKey output) {
-        var mc = Minecraft.getInstance();
-        if (mc.getSingleplayerServer() == null || mc.level == null) return null;
-        return RecipeCatalog.from(mc.getSingleplayerServer().getRecipeManager(), mc.level).recipesFor(output)
-                .stream().findFirst().orElse(null);
     }
 
     private StackKey planRoot() { return request.plan().root().item(); }

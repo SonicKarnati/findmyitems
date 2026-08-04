@@ -370,7 +370,8 @@ public final class RetrieveHandler {
         var contents = holder.get(DataComponents.CONTAINER);
         if (contents == null) return 0;
 
-        var items = new ArrayList<>(contents.nonEmptyItemCopyStream().toList());
+        // Keep empty slots: provenance paths are physical indices, not a compacted inventory view.
+        var items = new ArrayList<>(contents.allItemsCopyStream().toList());
         var moved = 0;
 
         for (var inner : items) {
@@ -390,7 +391,6 @@ public final class RetrieveHandler {
         }
 
         if (moved > 0) {
-            items.removeIf(ItemStack::isEmpty);
             holder.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(items));
         }
         return moved;

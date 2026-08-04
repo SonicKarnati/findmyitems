@@ -7,6 +7,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EnderChestBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import dev.smpb.findmyitems.model.ContainerKind;
 
@@ -90,7 +91,7 @@ public final class Reachability {
                 case CHEST -> block == Blocks.CHEST;
                 case TRAPPED_CHEST -> block == Blocks.TRAPPED_CHEST;
                 case BARREL -> block == Blocks.BARREL;
-                case SHULKER_BOX -> block == Blocks.SHULKER_BOX;
+                case SHULKER_BOX -> block instanceof ShulkerBoxBlock;
                 case ENDER_CHEST -> block == Blocks.ENDER_CHEST;
             };
         }
@@ -110,7 +111,7 @@ public final class Reachability {
     public static boolean isContainerBlock(Level level, BlockPos pos) {
         var block = level.getBlockState(pos).getBlock();
         return block instanceof ChestBlock || block instanceof EnderChestBlock
-                || block == Blocks.BARREL || block == Blocks.SHULKER_BOX;
+                || block == Blocks.BARREL || block instanceof ShulkerBoxBlock;
     }
 
     public static boolean inRange(Player player, BlockPos pos, int configuredUpperBound) {
