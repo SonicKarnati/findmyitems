@@ -3,7 +3,7 @@
   "id": "findmyitems",
   "version": "${version}",
   "name": "findmyitems",
-  "description": "Indexes the contents of containers you have opened, and lets you search them and retrieve items from one screen. Single-player worlds only.",
+  "description": "Indexes opened containers, searches items and crafting materials, and safely gathers or retrieves them from one screen. Crafting-table recipes only; single-player worlds only.",
   "authors": ["SonicKarnati"],
   "icon": "assets/findmyitems/icon.png",
   "license": "All-Rights-Reserved",

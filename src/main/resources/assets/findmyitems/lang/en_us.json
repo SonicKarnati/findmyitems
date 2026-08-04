@@ -24,7 +24,7 @@
   "screen.findmyitems.footer.items.one": "%d item · scroll the hopper to change the take amount (%d)",
   "screen.findmyitems.footer.containers": "%d containers · nearest first, ender chest pinned",
   "screen.findmyitems.footer.crafting": "Materials for %d · indented rows are sub-crafts",
-  "screen.findmyitems.craft.singleplayer_only": "Crafting lookup needs a single-player world.",
+  "screen.findmyitems.craft.singleplayer_only": "Crafting lookup is available only in a single-player world.",
   "message.findmyitems.inventory_full": "Your inventory is full.",
   "message.findmyitems.singleplayer_only": "findmyitems works in single-player worlds only.",
   "screen.findmyitems.craft.unknown_item": "No item called \"%s\"",

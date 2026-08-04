@@ -4,6 +4,26 @@ Notable changes to `findmyitems`. Versions follow the `MAJOR.MINOR.PATCH` form, 
 
 ## Unreleased
 
+## 0.1.4 — 2026-08-04
+
+### Added
+
+- The Crafting view searches for craftable roots correctly, including word-aware fuzzy matching, and browses large result sets with lazy loading and virtualization.
+- Crafting plans choose recipe alternatives, reuse shared stock, account for batch surplus, and terminate safely when recipes contain cycles.
+- Gathering supports both gather-only and gather-and-craft actions, with cancellation and recovery from stale indexed sources.
+
+### Fixed
+
+- Reachability now follows vanilla-valid interaction range, loaded-chunk checks, and line-of-sight obstruction rules.
+- Inventory capacity and item movement remain safe when gathering or crafting cannot complete; no items are created or destroyed.
+- Crafting titles, action labels, status messages, selection changes, and scrolling behavior are consistent in the catalog UI.
+
+### Known limitations
+
+- Only crafting-table recipes and player-inventory recipes are supported. Furnaces, stonecutters, smithing, and other processing stations are not supported.
+- The documented manual crafting-planner fixture pass remains a release blocker and has not been manually verified for this candidate.
+- Multiplayer is intentionally unsupported; the mod remains single-player only.
+
 ## 0.1.3 — 2026-08-02
 
 ### Changed

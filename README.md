@@ -15,6 +15,8 @@ Features:
 - Retrieval and deposit of items from containers within normal interaction range.
 - A visual highlight that outlines a container in the world, visible through blocks.
 - A crafting view that breaks an item into its materials and subtracts what your containers already hold.
+- Crafting search with word-aware fuzzy matching, cycle-safe planning, and lazy, virtualized result browsing.
+- Gather-only and gather-and-craft actions with cancellation, stale-index recovery, and inventory-safe transfers.
 - A filter field added to ordinary container screens, which dims slots that do not match what you type.
 - Indexing and retrieval of items stored inside shulker boxes placed inside containers, up to four levels of nesting.
 
@@ -112,7 +114,7 @@ The result is a tree of the materials required:
 - A row shown in green is fully covered by items already in your containers.
 - A row shown in red is a shortfall you must obtain yourself.
 
-A material is expanded into its own components only when the index cannot already cover it. Recipes that are not crafting-table recipes, such as smelting and stonecutting, are not followed, because those conversions run in both directions and would produce cycles.
+A material is expanded into its own components only when the index cannot already cover it. Only crafting-table recipes and player-inventory recipes are supported. Furnaces, stonecutters, smithing, and other processing stations are not followed.
 
 ### Searching
 
@@ -204,6 +206,8 @@ separate task because it starts a client, opens a game window, and writes screen
 
 ### Manual crafting planner fixture
 
+The manual fixture pass is a release blocker for this release candidate and has not been manually verified. Automated tests do not replace this pass.
+
 For a repeatable manual pass, copy the fixture into a test world's datapack directory and stand at the origin
 before setup:
 
@@ -246,8 +250,8 @@ Pass/fail checklist:
 - [ ] **Execution:** with the table at `~14 ~ ~2`, gather-only and gather-and-craft succeed using the three diamonds and two sticks at `~16 ~ ~2`; repeat with no reachable table and verify the clear failure state.
 - [ ] **Failure handling:** verify cancellation, stale sources, and a near-full player inventory do not create or destroy items.
 
-Only crafting-table recipes and player-inventory recipes are supported; smelting and other processing
-stations are intentionally not part of the fixture or planner. Record each manual case's setup,
+Only crafting-table recipes and player-inventory recipes are supported; furnaces, stonecutters,
+smithing, and other processing stations are intentionally not part of the fixture or planner. Record each manual case's setup,
 expected result, actual result, and screenshot/log path. Manual screenshots/logs are evidence distinct from
 JUnit, `build`, headless GameTest, and client GameTest results.
 
@@ -284,7 +288,7 @@ Bug reports, feature requests, and pull requests are accepted on GitHub.
 
 ## Support
 
-- **Known issues** are tracked in the [issue tracker](https://github.com/SonicKarnati/findmyitems/issues). Current known issues in `0.1.0` include the list layout not being remembered between views and sessions, and the retrieval tooltip showing the requested amount rather than the amount that will actually be moved.
+- **Known issues** are tracked in the [issue tracker](https://github.com/SonicKarnati/findmyitems/issues). The manual crafting-planner fixture pass remains outstanding for the `0.1.4` release candidate.
 - **Multiplayer behaviour is intentional.** The mod disabling itself on a server is not a bug. See [Single-player only](#single-player-only).
 - **When reporting a problem**, include the mod version, the Minecraft, Fabric Loader, and Fabric API versions, and the other mods you have installed. Relevant lines from `logs/latest.log` help. If a reported count is wrong, state what changed the container between the last time you opened it and the moment the count was shown.
 - **Release notes** are in [`CHANGELOG.md`](CHANGELOG.md) and on each [release](https://github.com/SonicKarnati/findmyitems/releases).
