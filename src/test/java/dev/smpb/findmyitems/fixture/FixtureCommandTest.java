@@ -27,9 +27,9 @@ final class FixtureCommandTest {
     private static final Pattern MARKER = Pattern.compile(
             "unless entity @e\\[type=minecraft:marker,tag=findmyitems_fixture,distance=\\.\\.0\\.1\\] "
                     + "if block ~ ~ ~ minecraft:air run summon minecraft:marker ~ ~ ~ "
-                    + "\\{Tags:\\[\"findmyitems_fixture\"\\]\\}");
+                    + "\\{Tags:\\[\"findmyitems_fixture\",\"findmyitems_fixture_([a-z_]+)\"\\]\\}");
     private static final Pattern RESET = Pattern.compile(
-            "execute as @e\\[type=minecraft:marker,tag=findmyitems_fixture\\] at @s "
+            "execute as @e\\[type=minecraft:marker,tag=findmyitems_fixture,tag=findmyitems_fixture_([a-z_]+)\\] at @s "
                     + "if block ~ ~ ~ minecraft:([a-z_]+) run setblock ~ ~ ~ minecraft:air");
 
     private static final Map<String, FixtureGroup> GROUPS = groups();
@@ -44,6 +44,7 @@ final class FixtureCommandTest {
         assertEquals(GROUPS.values().stream().mapToInt(group -> group.positions().size()).sum(), markers.size());
         assertEquals(markers.size(), blocks.size());
         assertEquals(11, items.size());
+        assertEquals(expectedSetup(), commands);
         assertEquals(GROUPS.values().stream().flatMap(group -> group.positions().stream()).toList(),
                 markers.stream().map(Command::position).toList());
         for (var group : GROUPS.values()) {
@@ -66,9 +67,11 @@ final class FixtureCommandTest {
         for (var line : resetLines.subList(0, resetLines.size() - 1)) {
             var matcher = RESET.matcher(line);
             assertTrue(matcher.matches(), "invalid reset command: " + line);
-            resetBlocks.add(matcher.group(1));
+            assertEquals(matcher.group(1), matcher.group(2), "reset must verify the marker's original type");
+            resetBlocks.add(matcher.group(1) + ":" + matcher.group(2));
         }
-        assertEquals(List.of("chest", "stone", "hopper", "crafting_table"), resetBlocks);
+        assertEquals(List.of("chest:chest", "stone:stone", "hopper:hopper", "crafting_table:crafting_table"),
+                resetBlocks);
         assertTrue(resetLines.get(resetLines.size() - 1).equals(
                 "kill @e[type=minecraft:marker,tag=findmyitems_fixture]"));
         assertEquals("{\n  \"values\": []\n}\n", read("data/minecraft/tags/function/load.json"));
@@ -104,7 +107,7 @@ final class FixtureCommandTest {
             var item = ITEM.matcher(tail);
             assertTrue(marker.matches() ^ block.matches() ^ item.matches(), "unknown setup command: " + line);
             parsed.add(new Command(new Position(positioned.group(1), positioned.group(2), positioned.group(3)),
-                    marker.matches(), block.matches() ? block.group(1) : null,
+                    marker.matches() ? marker.group(1) : null, block.matches() ? block.group(1) : null,
                     item.matches() ? new Item(item.group(1), item.group(2), Integer.parseInt(item.group(3))) : null));
         }
         return parsed;
@@ -122,6 +125,45 @@ final class FixtureCommandTest {
     private static List<Item> itemsFor(FixtureGroup group, List<Command> commands) {
         return commands.stream().filter(command -> group.positions().contains(command.position()))
                 .map(Command::item).filter(item -> item != null).toList();
+    }
+
+    private static List<Command> expectedSetup() {
+        var expected = new ArrayList<Command>();
+        addBlock(expected, "~2 ~ ~2", "chest");
+        addItem(expected, "~2 ~ ~2", new Item("0", "white_bed", 1));
+        addItem(expected, "~2 ~ ~2", new Item("1", "bedrock", 1));
+        addBlock(expected, "~4 ~ ~2", "chest");
+        addBlock(expected, "~4 ~ ~1", "stone");
+        addItem(expected, "~4 ~ ~2", new Item("0", "diamond", 32));
+        addBlock(expected, "~6 ~ ~2", "chest");
+        addBlock(expected, "~5 ~ ~1", "stone");
+        addBlock(expected, "~7 ~ ~1", "stone");
+        addItem(expected, "~6 ~ ~2", new Item("0", "emerald", 5));
+        addBlock(expected, "~8 ~ ~2", "chest");
+        addBlock(expected, "~9 ~ ~2", "chest");
+        addItem(expected, "~8 ~ ~2", new Item("0", "iron_ingot", 64));
+        addItem(expected, "~9 ~ ~2", new Item("0", "iron_ingot", 64));
+        addBlock(expected, "~12 ~ ~2", "chest");
+        addBlock(expected, "~12 ~1 ~2", "hopper");
+        addItem(expected, "~12 ~1 ~2", new Item("0", "gold_ingot", 16));
+        addBlock(expected, "~14 ~ ~2", "crafting_table");
+        addBlock(expected, "~16 ~ ~2", "chest");
+        addItem(expected, "~16 ~ ~2", new Item("0", "diamond", 3));
+        addItem(expected, "~16 ~ ~2", new Item("1", "stick", 2));
+        addItem(expected, "~16 ~ ~2", new Item("2", "oak_log", 3));
+        addBlock(expected, "~30 ~ ~2", "chest");
+        addItem(expected, "~30 ~ ~2", new Item("0", "diamond", 8));
+        return expected;
+    }
+
+    private static void addBlock(List<Command> commands, String position, String block) {
+        var parsed = Position.parse(position);
+        commands.add(new Command(parsed, block, null, null));
+        commands.add(new Command(parsed, null, block, null));
+    }
+
+    private static void addItem(List<Command> commands, String position, Item item) {
+        commands.add(new Command(Position.parse(position), null, null, item));
     }
 
     private static Map<String, FixtureGroup> groups() {
@@ -169,7 +211,11 @@ final class FixtureCommandTest {
 
     private record Item(String slot, String material, int quantity) {}
 
-    private record Command(Position position, boolean marker, String block, Item item) {}
+    private record Command(Position position, String markerType, String block, Item item) {
+        boolean marker() {
+            return markerType != null;
+        }
+    }
 
     private record FixtureGroup(String name, List<Position> positions, List<String> blocks, List<Item> items,
             List<String> readmeCoordinates, String readmeDescription) {}

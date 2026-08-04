@@ -37,10 +37,12 @@ still have their expected fixture type, and leaves pre-existing or user-replaced
 does not invoke reset. The partial-material chest now supplies three diamonds and two sticks for the documented
 diamond-pickaxe gather/craft scenario.
 
-`FixtureCommandTest` parses every non-comment setup and reset command. Its model asserts all eight documented
-fixture groups, all 18 marker/block coordinates, all 11 material placements and quantities, exact setup/reset
-syntax, marker-owned reset selectors, and the README coordinate map. This validates command structure and
-fixture intent, not execution by the Minecraft command engine.
+`FixtureCommandTest` parses every non-comment setup and reset command. Its model asserts every setup command's
+exact coordinate and operation, all eight documented fixture groups, all 18 marker/block coordinates, all 11
+material placements and quantities, exact setup/reset syntax, marker-type-owned reset selectors, and the README
+coordinate map. Reset markers record their original block type; a replaced block is left untouched while its
+marker is safely removed. This validates command structure and fixture intent, not execution by the Minecraft
+command engine.
 
 ## Screenshots
 
