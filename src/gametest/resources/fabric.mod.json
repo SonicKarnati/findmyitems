@@ -7,7 +7,8 @@
   "entrypoints": {
     "fabric-gametest": [
       "dev.smpb.findmyitems.test.FindMyItemsGameTest",
-      "dev.smpb.findmyitems.test.RetrieveEdgeCaseGameTest"
+      "dev.smpb.findmyitems.test.RetrieveEdgeCaseGameTest",
+      "dev.smpb.findmyitems.test.InventorySimulationGameTest"
     ],
     "fabric-client-gametest": [
       "dev.smpb.findmyitems.test.FindMyItemsClientGameTest",

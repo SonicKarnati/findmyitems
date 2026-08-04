@@ -1,6 +1,8 @@
 package dev.smpb.findmyitems.craft;
 
 import dev.smpb.findmyitems.model.StackKey;
+import dev.smpb.findmyitems.observation.SlotReader;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
@@ -18,25 +20,26 @@ public final class InventorySimulation {
     }
 
     public static CapacityResult simulate(PlayerInventorySnapshot snapshot, CraftingPlan plan) {
-        var stacks = snapshot.copySlots();
+        var stacks = new ArrayList<>(snapshot.copySlots());
+        var keys = new ArrayList<>(snapshot.keys());
         var surplus = new LinkedHashMap<StackKey, Long>(plan.surplusDelta());
 
         for (var entry : plan.consumedDelta().entrySet()) {
-            if (!remove(stacks, entry.getKey(), entry.getValue())) {
-                return unsafe(stacks, 0, surplus, "source " + entry.getKey() + " is not component-compatible");
+            if (!remove(stacks, keys, entry.getKey(), entry.getValue())) {
+                return unsafe(stacks, 0, surplus, "source " + entry.getKey() + " is absent or incompatible");
             }
         }
         for (var entry : plan.remainders().entrySet()) {
-            var failure = insert(stacks, entry.getKey(), entry.getValue());
+            var failure = insert(stacks, keys, snapshot.templates(), entry.getKey(), entry.getValue());
             if (failure != null) return unsafe(stacks, failure, surplus, "remainder " + entry.getKey());
         }
         for (var entry : plan.surplusDelta().entrySet()) {
-            var failure = insert(stacks, entry.getKey(), entry.getValue());
+            var failure = insert(stacks, keys, snapshot.templates(), entry.getKey(), entry.getValue());
             if (failure != null) return unsafe(stacks, failure, surplus, "surplus " + entry.getKey());
         }
 
         var output = plan.root().item();
-        var failure = insert(stacks, output, plan.root().requested());
+        var failure = insert(stacks, keys, snapshot.templates(), output, plan.root().requested());
         if (failure != null) return unsafe(stacks, failure, surplus, "output " + output);
         return new CapacityResult(true, 0, stacks, surplus, "");
     }
@@ -46,28 +49,28 @@ public final class InventorySimulation {
         return new CapacityResult(false, required, stacks, surplus, reason);
     }
 
-    private static boolean remove(List<ItemStack> stacks, StackKey key, long amount) {
+    private static boolean remove(List<ItemStack> stacks, List<StackKey> keys, StackKey key, long amount) {
         var remaining = amount;
-        var sawSameItem = false;
-        for (var stack : stacks) {
-            if (stack.isEmpty() || !itemId(stack).equals(key.itemId())) continue;
-            sawSameItem = true;
-            if (!matches(stack, key)) continue;
+        for (var index = 0; index < stacks.size(); index++) {
+            var stack = stacks.get(index);
+            if (stack.isEmpty() || !key.equals(keys.get(index))) continue;
             var removed = (int) Math.min(remaining, stack.getCount());
             stack.shrink(removed);
             remaining -= removed;
             if (remaining == 0) return true;
         }
-        return remaining == 0 || !sawSameItem;
+        return remaining == 0;
     }
 
-    private static Integer insert(List<ItemStack> stacks, StackKey key, long amount) {
+    private static Integer insert(List<ItemStack> stacks, List<StackKey> keys, Map<StackKey, ItemStack> templates,
+                                  StackKey key, long amount) {
         if (amount <= 0) return null;
-        var template = template(stacks, key);
+        var template = template(stacks, keys, templates, key);
         if (template.isEmpty()) return 1;
         var remaining = amount;
-        for (var stack : stacks) {
-            if (stack.isEmpty() || !ItemStack.isSameItemSameComponents(stack, template)) continue;
+        for (var index = 0; index < stacks.size(); index++) {
+            var stack = stacks.get(index);
+            if (stack.isEmpty() || !key.equals(keys.get(index))) continue;
             var room = stack.getMaxStackSize() - stack.getCount();
             var added = (int) Math.min(remaining, room);
             stack.grow(added);
@@ -77,18 +80,24 @@ public final class InventorySimulation {
         for (var index = 0; index < stacks.size() && remaining > 0; index++) {
             if (!stacks.get(index).isEmpty()) continue;
             var added = (int) Math.min(remaining, template.getMaxStackSize());
-            var placed = template.copyWithCount(added);
-            stacks.set(index, placed);
+            stacks.set(index, template.copyWithCount(added));
+            keys.set(index, key);
             remaining -= added;
         }
         return remaining == 0 ? null : (int) ((remaining + template.getMaxStackSize() - 1)
                 / template.getMaxStackSize());
     }
 
-    private static ItemStack template(List<ItemStack> stacks, StackKey key) {
-        for (var stack : stacks) {
-            if (!stack.isEmpty() && matches(stack, key)) return stack.copyWithCount(1);
+    private static ItemStack template(List<ItemStack> stacks, List<StackKey> keys, Map<StackKey, ItemStack> templates,
+                                      StackKey key) {
+        for (var index = 0; index < stacks.size(); index++) {
+            if (!stacks.get(index).isEmpty() && key.equals(keys.get(index))) {
+                return stacks.get(index).copyWithCount(1);
+            }
         }
+        var supplied = templates.get(key);
+        if (supplied != null) return supplied.copyWithCount(1);
+        if (!key.componentsJson().equals("{}")) return ItemStack.EMPTY;
         try {
             return BuiltInRegistries.ITEM.get(Identifier.parse(key.itemId()))
                     .map(ItemStack::new).orElse(ItemStack.EMPTY);
@@ -97,24 +106,45 @@ public final class InventorySimulation {
         }
     }
 
-    private static boolean matches(ItemStack stack, StackKey key) {
-        if (!itemId(stack).equals(key.itemId())) return false;
-        if (key.componentsJson().equals("{}")) return stack.getComponents().isEmpty();
-        return stack.getComponentsPatch().toString().equals(key.componentsJson());
-    }
-
     private static String itemId(ItemStack stack) {
         return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     }
 
-    public record PlayerInventorySnapshot(List<ItemStack> slots) {
+    public record PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys,
+                                          Map<StackKey, ItemStack> templates) {
+        public PlayerInventorySnapshot(List<ItemStack> slots) {
+            this(slots, plainKeys(slots), Map.of());
+        }
+
+        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys) {
+            this(slots, keys, Map.of());
+        }
+
         public PlayerInventorySnapshot {
             if (slots.size() != STORAGE_SLOTS) throw new IllegalArgumentException("player storage must have 36 slots");
+            if (keys.size() != STORAGE_SLOTS) throw new IllegalArgumentException("snapshot keys must have 36 slots");
             slots = slots.stream().map(ItemStack::copy).toList();
+            keys = java.util.Collections.unmodifiableList(new ArrayList<>(keys));
+            templates = templates.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                    Map.Entry::getKey, entry -> entry.getValue().copyWithCount(1)));
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots) {
             return new PlayerInventorySnapshot(slots);
+        }
+
+        public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys) {
+            return new PlayerInventorySnapshot(slots, keys);
+        }
+
+        public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys,
+                                                 Map<StackKey, ItemStack> templates) {
+            return new PlayerInventorySnapshot(slots, keys, templates);
+        }
+
+        public static PlayerInventorySnapshot of(List<ItemStack> slots, HolderLookup.Provider registries) {
+            var keys = slots.stream().map(stack -> stack.isEmpty() ? null : key(stack, registries)).toList();
+            return new PlayerInventorySnapshot(slots, keys);
         }
 
         @Override
@@ -124,6 +154,18 @@ public final class InventorySimulation {
 
         private List<ItemStack> copySlots() {
             return slots.stream().map(ItemStack::copy).toList();
+        }
+
+        private static List<StackKey> plainKeys(List<ItemStack> slots) {
+            if (slots.stream().anyMatch(stack -> !stack.isEmpty())) {
+                throw new IllegalArgumentException("registry access is required for non-empty inventory snapshots");
+            }
+            return java.util.Collections.unmodifiableList(new ArrayList<>(java.util.Collections.nCopies(
+                    slots.size(), (StackKey) null)));
+        }
+
+        private static StackKey key(ItemStack stack, HolderLookup.Provider registries) {
+            return new StackKey(itemId(stack), SlotReader.serializeComponents(stack.getComponentsPatch(), registries));
         }
     }
 

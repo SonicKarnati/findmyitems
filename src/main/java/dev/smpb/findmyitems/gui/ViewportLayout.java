@@ -20,8 +20,13 @@ public final class ViewportLayout {
         var lastVisible = Math.min(rowCount - 1, (int) Math.ceil((clamped + height) / rowHeight) - 1);
         var first = Math.max(0, firstVisible - Math.max(0, overscan));
         var last = Math.min(rowCount - 1, lastVisible + Math.max(0, overscan));
-        var rows = IntStream.rangeClosed(first, last).mapToObj(index -> new Row(index,
-                top + index * rowHeight - clamped, rowHeight)).toList();
+        var rows = IntStream.rangeClosed(first, last).mapToObj(index -> {
+            var rowTop = top + index * rowHeight - clamped;
+            var rowBottom = rowTop + rowHeight;
+            var clippedTop = Math.min(bottom, Math.max(top, rowTop));
+            var clippedBottom = Math.min(bottom, rowBottom);
+            return new Row(index, clippedTop, Math.max(0, clippedBottom - clippedTop));
+        }).toList();
         return new Layout(top, bottom, rowHeight, rowCount, clamped, firstVisible, lastVisible, rows);
     }
 
@@ -47,9 +52,13 @@ public final class ViewportLayout {
         }
 
         public OptionalInt hitTest(double x, double y) {
-            if (y < top || y >= bottom) return OptionalInt.empty();
+            if (!Double.isFinite(x) || x < 0 || !Double.isFinite(y) || y < top || y >= bottom
+                    || rowHeight <= 0 || rowCount <= 0) return OptionalInt.empty();
             var index = (int) Math.floor((y - top + scroll) / rowHeight);
-            return index >= 0 && index < rowCount ? OptionalInt.of(index) : OptionalInt.empty();
+            if (index < 0 || index >= rowCount) return OptionalInt.empty();
+            var row = rows.stream().filter(candidate -> candidate.index() == index).findFirst();
+            return row.filter(candidate -> y >= candidate.top() && y < candidate.bottom())
+                    .map(candidate -> OptionalInt.of(index)).orElseGet(OptionalInt::empty);
         }
     }
 }

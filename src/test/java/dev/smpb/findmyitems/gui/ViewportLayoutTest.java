@@ -43,5 +43,19 @@ final class ViewportLayoutTest {
         assertEquals(-1, layout.lastVisibleRow());
         assertEquals(0, layout.scrollMaximum());
         assertTrue(layout.rows().isEmpty());
+        assertEquals(OptionalInt.empty(), layout.hitTest(0, 10));
+        assertEquals(OptionalInt.empty(), layout.hitTest(-1, 10));
+        assertEquals(OptionalInt.empty(), layout.hitTest(Double.NaN, 10));
+        assertTrue(ViewportLayout.layout(10, 50, 0, 3, 0, 1).rows().isEmpty());
+    }
+
+    @Test
+    void overscanRectanglesAreClippedAndHitTestingChecksRowBounds() {
+        var layout = ViewportLayout.layout(10, 50, 20, 4, 0, 2);
+
+        assertEquals(10, layout.rowRect(0).top());
+        assertEquals(50, layout.rowRect(3).bottom());
+        assertEquals(OptionalInt.empty(), layout.hitTest(-1, 20));
+        assertEquals(OptionalInt.empty(), layout.hitTest(1, Double.POSITIVE_INFINITY));
     }
 }
