@@ -3,11 +3,12 @@
 ## Status
 
 Implemented. Automated coverage is verified; the interactive fixture pass remains pending. No production
-code was changed.
+code was changed. Fixture validation is exhaustive at the command/model boundary; JUnit does not execute
+Minecraft commands in a real world.
 
 ## Test Counts
 
-- `./gradlew test`: 94 JUnit tests passed, 0 failed, 0 skipped, including fixture-command validation.
+- `./gradlew test`: 95 JUnit tests passed, 0 failed, 0 skipped, including structured fixture-command validation.
 - `./gradlew build`: successful; includes compilation, the JUnit/check tasks, and the configured headless `runGameTest` task.
 - `./gradlew runGameTest`: 53 required GameTests passed, 0 failed.
 - `./gradlew runClientGameTest`: successful process exit; the client acceptance classes completed and produced 23 automated-test screenshots.
@@ -36,6 +37,11 @@ still have their expected fixture type, and leaves pre-existing or user-replaced
 does not invoke reset. The partial-material chest now supplies three diamonds and two sticks for the documented
 diamond-pickaxe gather/craft scenario.
 
+`FixtureCommandTest` parses every non-comment setup and reset command. Its model asserts all eight documented
+fixture groups, all 18 marker/block coordinates, all 11 material placements and quantities, exact setup/reset
+syntax, marker-owned reset selectors, and the README coordinate map. This validates command structure and
+fixture intent, not execution by the Minecraft command engine.
+
 ## Screenshots
 
 Client GameTest screenshots are in `build/run/clientGameTest/screenshots/`:
@@ -55,7 +61,8 @@ The client log is `build/run/clientGameTest/logs/latest.log`.
 
 The client runtime reached the title/game rendering path and logged the development environment. The
 fixture was not copied into a persistent world and the interactive `/function` and catalog checklist could
-not be driven through the available command interface. No manual fixture case is marked passed:
+not be driven through the available command interface. No manual fixture case is marked passed, and no
+persistent manual interaction is claimed:
 
 - [ ] Manual fixture setup/reset and coordinate map: not executed in a persistent world.
 - [ ] Manual search, browse, planning, reachability, locate, and execution checklist: not executed.
