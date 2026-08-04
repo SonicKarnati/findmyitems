@@ -1,5 +1,10 @@
 # Task 3 Reviewer-Fix Report
 
+## Conservation Follow-Up
+
+- Candidate output surplus is now committed only after every ingredient child is satisfied. Missing-input candidates return neither generated output nor recipe remainders.
+- The missing-input regression now asserts both empty `remainders()` and empty `surplusDelta()`; the successful batch regression supplies all inputs before asserting generated surplus.
+
 ## Final Follow-Up
 
 - Candidates with missing ingredient children no longer return recipe remainders. Generated output surplus behavior remains unchanged; only unsupported remainder returns are suppressed.
@@ -30,16 +35,16 @@
 Commands ran serially in the requested order after the final source change:
 
 1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
-   - `BUILD SUCCESSFUL in 1s`
-   - 20 focused planner/display tests passed, including both final regressions.
+   - `BUILD SUCCESSFUL in 2s`
+   - 20 focused planner/display tests passed, including the zero-surplus missing-input regression.
 2. `./gradlew test`
-   - `BUILD SUCCESSFUL in 6s`
+   - `BUILD SUCCESSFUL in 4s`
    - Full JUnit suite passed.
 3. `./gradlew build`
    - `BUILD SUCCESSFUL in 10s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 4. `./gradlew runGameTest`
-   - `BUILD SUCCESSFUL in 9s`
+   - `BUILD SUCCESSFUL in 11s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 
 `git diff --check` passed.

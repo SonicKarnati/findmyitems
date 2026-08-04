@@ -83,9 +83,11 @@ final class CraftingPlannerTest {
 
     @Test
     void batchOutputRoundsUpAndReportsGeneratedSurplus() {
-        var catalog = catalog(recipe("example:torch", 4, new String[]{"minecraft:coal", "minecraft:stick"}));
+        var catalog = catalog(recipe("example:torch", 4,
+                new String[]{"minecraft:coal"}, new String[]{"minecraft:stick"}));
         var plan = CraftingPlanner.plan(catalog, key("example:torch"), 5,
-                PlanningInventory.empty(), PlanningPolicy.DEFAULT);
+                PlanningInventory.of(Map.of(key("minecraft:coal"), 2L, key("minecraft:stick"), 2L)),
+                PlanningPolicy.DEFAULT);
 
         assertEquals(2, plan.root().craftCount());
         assertEquals(3, plan.generatedSurplus(key("example:torch")));
@@ -216,6 +218,7 @@ final class CraftingPlannerTest {
 
         assertEquals(1, plan.missing("example:input"));
         assertTrue(plan.remainders().isEmpty());
+        assertTrue(plan.surplusDelta().isEmpty());
         assertEquals(0, plan.remainingInventory().count(remainder));
     }
 

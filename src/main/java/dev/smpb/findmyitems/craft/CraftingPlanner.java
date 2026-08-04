@@ -150,16 +150,16 @@ public final class CraftingPlanner {
                 if (!child.missing.isEmpty()) childrenSatisfied = false;
                 if (child.cancelled) return child;
             }
+            if (!childrenSatisfied) {
+                var node = CraftingPlan.node(output, requested, indexed, crafts, children,
+                        consumed, surplus, conversionSource);
+                return new PlanningState(node, current, consumed, surplus, Map.of(), missing, 0, false);
+            }
             var produced = Math.multiplyExact(crafts, recipe.outputBatch());
             var extra = Math.subtractExact(produced, shortfall);
             if (extra > 0) {
                 current = current.add(output, extra);
                 merge(surplus, Map.of(output, extra));
-            }
-            if (!childrenSatisfied) {
-                var node = CraftingPlan.node(output, requested, indexed, crafts, children,
-                        consumed, surplus, conversionSource);
-                return new PlanningState(node, current, consumed, surplus, Map.of(), missing, 0, false);
             }
             for (var ingredient : selected) {
                 var selectedRemainders = recipe.alternativeRemainders().get(ingredient);
