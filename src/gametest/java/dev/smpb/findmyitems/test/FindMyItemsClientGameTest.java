@@ -6,6 +6,7 @@ import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
+import dev.smpb.findmyitems.retrieval.GhostOpen;
 import dev.smpb.findmyitems.search.InventorySearchController;
 import net.minecraft.client.gui.components.EditBox;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -80,6 +81,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             enderChestTotalsStayHonest(context, server);
 
             openCatalog(context);
+            assertLocateAndAutomaticRetrievalLabels(context);
             assertDefaultCatalogAmount(context);
             search(context, "diamond");
             context.takeScreenshot("items-list-search");
@@ -130,6 +132,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             assertShowingItems(context);
 
             context.setScreen(() -> null);
+            assertGhostOpenRefusesBlockedChest(context, server);
             highlightTheChest(context);
             context.takeScreenshot("chest-highlighted");
         }
@@ -147,6 +150,24 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         var rows = context.computeOnClient(mc -> CatalogScreenTestAccess.rowCount(requireCatalog(mc)));
         if (rows < 500) {
             throw new AssertionError("crafting view should list recipe roots, listed " + rows + " rows");
+        }
+    }
+
+    private static void assertLocateAndAutomaticRetrievalLabels(ClientGameTestContext context) {
+        var semantics = context.computeOnClient(mc -> new String[] {
+                String.valueOf(CatalogScreenTestAccess.locateVisible(0, true)),
+                String.valueOf(CatalogScreenTestAccess.locateVisible(5, true)),
+                CatalogScreenTestAccess.automaticStatusKey(0, 5, false, true),
+                CatalogScreenTestAccess.automaticStatusKey(0, 5, true, true),
+        });
+        if (!semantics[0].equals("false") || !semantics[1].equals("true")) {
+            throw new AssertionError("locate must hide zero stock and retain positive stock: "
+                    + java.util.Arrays.toString(semantics));
+        }
+        if (!semantics[2].equals("screen.findmyitems.craft.unavailable")
+                || !semantics[3].equals("screen.findmyitems.craft.reachable_now")) {
+            throw new AssertionError("positive unavailable stock must be labeled unavailable: "
+                    + java.util.Arrays.toString(semantics));
         }
     }
 
@@ -332,6 +353,22 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.runOnClient(mc -> ChestHighlighter.highlight(
                 List.of(CHEST), mc.level.dimension().identifier().toString()));
         context.waitTicks(10);
+    }
+
+    private static void assertGhostOpenRefusesBlockedChest(
+            ClientGameTestContext context,
+            net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        server.runOnServer(s -> {
+            for (int y = STAND.getY(); y <= STAND.getY() + 2; y++) {
+                s.overworld().setBlockAndUpdate(
+                        new BlockPos(STAND.getX(), y, STAND.getZ() + 1), Blocks.STONE.defaultBlockState());
+            }
+        });
+        context.waitTicks(2);
+        var canOpen = context.computeOnClient(mc -> GhostOpen.canOpen(CHEST));
+        if (canOpen) {
+            throw new AssertionError("GhostOpen must refuse a chest with no visible interaction point");
+        }
     }
 
     /** Stone platform at y=100 with a stocked chest two blocks in front of the player. */

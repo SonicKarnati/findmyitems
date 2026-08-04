@@ -67,7 +67,7 @@ public final class Reachability {
         if (!inRange(player, pos, configuredUpperBound)) {
             return result(false, Reason.OUT_OF_RANGE, pos, dimension, expectation);
         }
-        if (configuredUpperBound <= 0 && !hasVisibleInteractionPoint(level, player, pos)) {
+        if (!hasVisibleInteractionPoint(level, player, pos)) {
             return result(false, Reason.OBSTRUCTED, pos, dimension, expectation);
         }
         return result(true, Reason.ACTIONABLE, pos, dimension, expectation);
@@ -127,22 +127,41 @@ public final class Reachability {
         var x = pos.getX();
         var y = pos.getY();
         var z = pos.getZ();
-        var epsilon = 0.01;
-        var points = new net.minecraft.world.phys.Vec3[] {
-                new net.minecraft.world.phys.Vec3(x + box.minX + epsilon, y + (box.minY + box.maxY) / 2, z + (box.minZ + box.maxZ) / 2),
-                new net.minecraft.world.phys.Vec3(x + box.maxX - epsilon, y + (box.minY + box.maxY) / 2, z + (box.minZ + box.maxZ) / 2),
-                new net.minecraft.world.phys.Vec3(x + (box.minX + box.maxX) / 2, y + box.minY + epsilon, z + (box.minZ + box.maxZ) / 2),
-                new net.minecraft.world.phys.Vec3(x + (box.minX + box.maxX) / 2, y + box.maxY - epsilon, z + (box.minZ + box.maxZ) / 2),
-                new net.minecraft.world.phys.Vec3(x + (box.minX + box.maxX) / 2, y + (box.minY + box.maxY) / 2, z + box.minZ + epsilon),
-                new net.minecraft.world.phys.Vec3(x + (box.minX + box.maxX) / 2, y + (box.minY + box.maxY) / 2, z + box.maxZ - epsilon),
-        };
         var eye = player.getEyePosition();
-        for (var point : points) {
-            var hit = level.clip(new net.minecraft.world.level.ClipContext(eye, point,
-                    net.minecraft.world.level.ClipContext.Block.COLLIDER,
-                    net.minecraft.world.level.ClipContext.Fluid.NONE, player));
-            if (hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK
-                    && hit.getBlockPos().equals(pos)) return true;
+        var samples = 5;
+        var epsilon = 0.01;
+        for (int u = 1; u < samples; u++) {
+            for (int v = 1; v < samples; v++) {
+                var fu = (double) u / samples;
+                var fv = (double) v / samples;
+                var points = new net.minecraft.world.phys.Vec3[] {
+                        new net.minecraft.world.phys.Vec3(x + box.maxX + epsilon,
+                                y + box.minY + (box.maxY - box.minY) * fu,
+                                z + box.minZ + (box.maxZ - box.minZ) * fv),
+                        new net.minecraft.world.phys.Vec3(x + box.minX - epsilon,
+                                y + box.minY + (box.maxY - box.minY) * fu,
+                                z + box.minZ + (box.maxZ - box.minZ) * fv),
+                        new net.minecraft.world.phys.Vec3(x + box.minX + (box.maxX - box.minX) * fu,
+                                y + box.maxY + epsilon,
+                                z + box.minZ + (box.maxZ - box.minZ) * fv),
+                        new net.minecraft.world.phys.Vec3(x + box.minX + (box.maxX - box.minX) * fu,
+                                y + box.minY - epsilon,
+                                z + box.minZ + (box.maxZ - box.minZ) * fv),
+                        new net.minecraft.world.phys.Vec3(x + box.minX + (box.maxX - box.minX) * fu,
+                                y + box.minY + (box.maxY - box.minY) * fv,
+                                z + box.maxZ + epsilon),
+                        new net.minecraft.world.phys.Vec3(x + box.minX + (box.maxX - box.minX) * fu,
+                                y + box.minY + (box.maxY - box.minY) * fv,
+                                z + box.minZ - epsilon),
+                };
+                for (var point : points) {
+                    var hit = level.clip(new net.minecraft.world.level.ClipContext(eye, point,
+                            net.minecraft.world.level.ClipContext.Block.OUTLINE,
+                            net.minecraft.world.level.ClipContext.Fluid.NONE, player));
+                    if (hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK
+                            && hit.getBlockPos().equals(pos)) return true;
+                }
+            }
         }
         return false;
     }

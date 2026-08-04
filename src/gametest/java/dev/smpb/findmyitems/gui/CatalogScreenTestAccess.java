@@ -77,4 +77,13 @@ public final class CatalogScreenTestAccess {
     public static boolean hasHoveredIdentity(CatalogScreen screen) {
         return screen.hoveredIdentity() != null;
     }
+
+    public static boolean locateVisible(long indexedCount, boolean hasPosition) {
+        return CatalogScreen.locateVisible(indexedCount, hasPosition);
+    }
+
+    public static String automaticStatusKey(long missing, long indexed, boolean reachableStorage,
+                                             boolean reachableCraftingTable) {
+        return CatalogScreen.automaticStatusKey(missing, indexed, reachableStorage, reachableCraftingTable);
+    }
 }

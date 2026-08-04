@@ -152,7 +152,7 @@ public final class CatalogScreen extends Screen {
         super(Component.translatable("screen.findmyitems.catalog"));
         this.index = index;
         this.config = config;
-        this.reachability = new ReachabilityService(() -> config.retrieveDistanceBlocks);
+        this.reachability = ReachabilityService.shared();
     }
 
     /**
@@ -915,9 +915,9 @@ public final class CatalogScreen extends Screen {
     }
 
     /** Finds an indexed item by id so a crafting-tree node can point at a real chest. */
-    private ItemResult lookup(String itemId) {
-        return index.search(itemId).stream()
-                .filter(result -> result.key().itemId().equals(itemId))
+    private ItemResult lookup(StackKey key) {
+        return index.search(key.itemId()).stream()
+                .filter(result -> result.key().equals(key))
                 .findFirst()
                 .orElse(null);
     }
@@ -1015,6 +1015,18 @@ public final class CatalogScreen extends Screen {
             }
         }
         return stack;
+    }
+
+    static boolean locateVisible(long indexedCount, boolean hasPosition) {
+        return indexedCount > 0 && hasPosition;
+    }
+
+    static String automaticStatusKey(long missing, long indexed, boolean reachableStorage,
+                                     boolean reachableCraftingTable) {
+        if (missing > 0 && !reachableCraftingTable) return "screen.findmyitems.craft.no_reachable_table";
+        return indexed > 0 && reachableStorage
+                ? "screen.findmyitems.craft.reachable_now"
+                : "screen.findmyitems.craft.unavailable";
     }
 
     // ---------------------------------------------------------------- container cards
@@ -1284,7 +1296,8 @@ public final class CatalogScreen extends Screen {
             graphics.text(font, subtitle(nearest), textLeft, top + 16, TEXT_DIM);
             graphics.disableScissor();
 
-            actionButton(graphics, locateX, buttonY, Items.ENDER_EYE, mouseX, mouseY, nearest != null, nearest != null
+            var locatable = locateVisible(item.totalCount(), nearest != null);
+            actionButton(graphics, locateX, buttonY, Items.ENDER_EYE, mouseX, mouseY, locatable, locatable
                     ? Component.translatable("screen.findmyitems.locate", sourceLabel(nearest))
                     : Component.translatable("screen.findmyitems.tooltip.nowhere"));
             actionRegions.add(ActionRegion.click(locateX, buttonY, () -> locateItem(item)));
@@ -1396,7 +1409,7 @@ public final class CatalogScreen extends Screen {
 
             var buttonY = middle - BUTTON_SIZE / 2;
             var locateX = right - BUTTON_SIZE;
-            var locatable = card.itemCount() > 0 && !card.key().positions().isEmpty();
+            var locatable = locateVisible(card.itemCount(), !card.key().positions().isEmpty());
 
             var textLeft = left + SLOT_SIZE + 8;
             graphics.enableScissor(textLeft, top, locateX - GAP, top + ROW_HEIGHT);
@@ -1519,7 +1532,7 @@ public final class CatalogScreen extends Screen {
 
             var buttonY = middle - BUTTON_SIZE / 2;
             var locateX = right - BUTTON_SIZE;
-            var found = material.indexed() > 0 ? lookup(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString()) : null;
+            var found = material.indexed() > 0 ? lookup(material.item()) : null;
 
             var textLeft = left + SLOT_SIZE + 8;
             graphics.enableScissor(textLeft, top, locateX - GAP, top + ROW_HEIGHT);
@@ -1541,17 +1554,20 @@ public final class CatalogScreen extends Screen {
         }
 
         private String status() {
-            var access = material.missing() > 0 && !hasReachableCraftingTable()
-                    ? Component.translatable("screen.findmyitems.craft.no_reachable_table").getString()
-                    : material.indexed() > 0
-                    ? Component.translatable("screen.findmyitems.craft.reachable_now").getString()
-                    : Component.translatable("screen.findmyitems.craft.unavailable").getString();
+            var accessKey = automaticStatusKey(material.missing(), material.indexed(),
+                    hasReachableStorage(material), hasReachableCraftingTable());
+            var access = Component.translatable(accessKey).getString();
             if (material.missing() == 0) {
                 return Component.translatable("screen.findmyitems.craft.known_in_storage", material.indexed()).getString()
                         + " · " + access;
             }
             return Component.translatable("screen.findmyitems.craft.missing_materials", material.missing(),
                     material.indexed()).getString() + " · " + access;
+        }
+
+        private boolean hasReachableStorage(DisplayPlan.Row row) {
+            var found = row.indexed() > 0 ? lookup(row.item()) : null;
+            return found != null && nearestReachableSource(found) != null;
         }
 
         private boolean hasReachableCraftingTable() {

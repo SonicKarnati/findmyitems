@@ -28,7 +28,7 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, 0, null);
+        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, 0, ContainerKind.CHEST);
     }
 
     public static boolean retrieve(
@@ -40,7 +40,8 @@ public final class RetrieveHandler {
             int amount,
             int maxReachBlocks
     ) {
-        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, maxReachBlocks, null);
+        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, maxReachBlocks,
+                ContainerKind.CHEST);
     }
 
     public static boolean retrieve(
@@ -107,7 +108,7 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        return deposit(player, pos, itemId, componentsJson, amount, 0, null);
+        return deposit(player, pos, itemId, componentsJson, amount, 0, ContainerKind.CHEST);
     }
 
     public static int deposit(
@@ -118,7 +119,7 @@ public final class RetrieveHandler {
             int amount,
             int maxReachBlocks
     ) {
-        return deposit(player, pos, itemId, componentsJson, amount, maxReachBlocks, null);
+        return deposit(player, pos, itemId, componentsJson, amount, maxReachBlocks, ContainerKind.CHEST);
     }
 
     public static int deposit(

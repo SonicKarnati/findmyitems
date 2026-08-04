@@ -1,5 +1,6 @@
 package dev.smpb.findmyitems.retrieval;
 
+import dev.smpb.findmyitems.FindMyItemsClient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
@@ -8,10 +9,18 @@ import java.util.function.IntSupplier;
 
 /** Client prediction of the same target facts the server validates before an action. */
 public final class ReachabilityService {
+    private static ReachabilityService shared;
     private final IntSupplier configuredUpperBound;
 
     public ReachabilityService(IntSupplier configuredUpperBound) {
         this.configuredUpperBound = configuredUpperBound;
+    }
+
+    public static ReachabilityService shared() {
+        if (shared == null) {
+            shared = new ReachabilityService(() -> FindMyItemsClient.config().retrieveDistanceBlocks);
+        }
+        return shared;
     }
 
     public Reachability.Result check(BlockPos pos, TargetKind kind) {

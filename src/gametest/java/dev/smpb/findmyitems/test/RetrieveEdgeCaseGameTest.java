@@ -2,6 +2,7 @@ package dev.smpb.findmyitems.test;
 
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
+import dev.smpb.findmyitems.model.ContainerKind;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -72,7 +73,7 @@ public final class RetrieveEdgeCaseGameTest {
         player.getEnderChestInventory().setItem(0, new ItemStack(Items.DIAMOND, 12));
 
         var took = RetrieveHandler.retrieve(player, helper.absolutePos(CHEST), dimension(helper),
-                "minecraft:diamond", "{}", 12);
+                "minecraft:diamond", "{}", 12, 0, ContainerKind.ENDER_CHEST);
 
         helper.assertTrue(took, "an ender chest holds the player's own inventory, not a block entity's");
         helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 12,
@@ -301,15 +302,15 @@ public final class RetrieveEdgeCaseGameTest {
         helper.getBlockEntity(CHEST, ChestBlockEntity.class).setItem(0, new ItemStack(Items.DIAMOND, 12));
         var player = playerNextToChest(helper);
         var pos = helper.absolutePos(CHEST);
-        player.setPos(pos.getX() + 40.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+        player.setPos(pos.getX() + 6.5, pos.getY() + 1.0, pos.getZ() + 0.5);
 
         var refused = RetrieveHandler.retrieve(player, pos, dimension(helper), "minecraft:diamond", "{}", 12);
-        helper.assertTrue(!refused, "40 blocks is out of arm's reach; the default must refuse it");
+        helper.assertTrue(!refused, "6 blocks is out of arm's reach; the default must refuse it");
         helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 0,
                 "a refused retrieval must move nothing");
 
-        var took = RetrieveHandler.retrieve(player, pos, dimension(helper), "minecraft:diamond", "{}", 12, 64);
-        helper.assertTrue(took, "a 64 block reach covers a chest 40 blocks away");
+        var took = RetrieveHandler.retrieve(player, pos, dimension(helper), "minecraft:diamond", "{}", 12, 8);
+        helper.assertTrue(took, "an 8 block reach covers a chest 6 blocks away when visible");
         helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 12,
                 "player should hold 12 diamonds, holds " + player.getInventory().countItem(Items.DIAMOND));
 
