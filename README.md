@@ -197,27 +197,52 @@ Three test layers are available. All three run without loading a world by hand.
 ./gradlew runClientGameTest  # launches a real client and drives it through input
 ```
 
-`./gradlew build` runs the JUnit layer. The other two are separate tasks because they start Minecraft. `runClientGameTest` opens a game window and writes screenshots to `build/run/clientGameTest/screenshots/`.
+`./gradlew build` compiles the project, runs the JUnit layer, and invokes this project's configured
+headless `runGameTest` task. `./gradlew test` is the JUnit-only check. `runClientGameTest` remains a
+separate task because it starts a client, opens a game window, and writes screenshots to
+`build/run/clientGameTest/screenshots/`.
 
 ### Manual crafting planner fixture
 
-For a repeatable manual pass, copy `src/test/resources/findmyitems-test-fixture` into the test world's
-`datapacks/findmyitems-test-fixture` directory, then run `/reload`. Stand at the origin of the fixture
-area and run `/function findmyitems:setup`; run `/function findmyitems:reset` afterward. `reset` removes
-only the blocks placed by `setup`.
+For a repeatable manual pass, copy the fixture into a test world's datapack directory, load it, and stand
+at the origin before setup:
 
-The setup places an accessible chest, an obstructed chest, a doorway-visible chest, a far chest, a double
-chest, a hopper-fed chest, a crafting table, and a chest with partial crafting materials. Open each
-container once so it is indexed. Check `bed`, `white bed`, `bedrock`, `whit bed`, and repeated whitespace;
-crafting roots at multiple depths, shared stock, SCC cycles, and batch surplus; empty crafting browse,
-bottom clipping, selection invalidation, obstruction, zero and positive locate counts, a reachable table,
-no table, cancellation, stale sources, and a full inventory. Check gather-only and gather-and-craft as well.
+```sh
+cp -R src/test/resources/findmyitems-test-fixture <test-world>/datapacks/findmyitems-test-fixture
+./gradlew runClient
+```
+
+In the client, run `/reload`, then `/function findmyitems:setup`. Coordinates below are relative to the
+player's position when `setup` runs (`~x ~y ~z`); open every container once so it is indexed. Run
+`/function findmyitems:reset` from the same origin after the pass. Reset removes only the blocks placed by
+setup.
+
+| Relative location | Fixture and expected use |
+| --- | --- |
+| `~2 ~ ~2` | Accessible chest: white bed and bedrock; search and component identity cases |
+| `~4 ~ ~2` | Obstructed chest: stone at `~4 ~ ~1`; locate must be zero/unreachable |
+| `~6 ~ ~2` | Doorway-visible chest: stone at `~5 ~ ~1` and `~7 ~ ~1`; locate must be positive/reachable |
+| `~8 ~ ~2` and `~9 ~ ~2` | Adjacent double chest: iron in both halves; both sources must index and conserve stock |
+| `~12 ~ ~2` | Hopper-fed chest, with hopper at `~12 ~1 ~2`; verify source/container handling |
+| `~14 ~ ~2` | Crafting table: reachable workstation case |
+| `~16 ~ ~2` | Partial-material chest: diamond, sticks, and oak logs; gather-only and gather-and-craft |
+| `~30 ~ ~2` | Far chest: outside normal interaction range; locate must be zero/unreachable |
+
+Pass/fail checklist:
+
+- [ ] **Setup/reset:** after setup, all eight fixture groups above exist; after reset, those blocks are air and nearby pre-existing blocks are unchanged.
+- [ ] **Search:** `bed` ranks the white bed, `white bed` matches it, `bedrock` does not match the bed, `whit bed` exercises fuzzy matching, and repeated whitespace behaves like normalized whitespace.
+- [ ] **Reachability:** `~2 ~ ~2` is reachable, `~4 ~ ~2` is obstructed, `~6 ~ ~2` is visible through the doorway, and `~30 ~ ~2` is out of range. Record locate count zero/positive for each.
+- [ ] **Containers:** the double chest at `~8 ~ ~2`/`~9 ~ ~2` and hopper-fed chest at `~12 ~ ~2` index correctly; no item count changes merely from indexing.
+- [ ] **Crafting browse:** empty browse opens without planning, rows remain usable at the bottom of the list, and changing the filter clears an invalid selection.
+- [ ] **Planning:** exercise roots at multiple depths, shared stock, SCC cycles, and batch surplus; the plan terminates and never spends the same stock twice.
+- [ ] **Execution:** with the table at `~14 ~ ~2`, gather-only and gather-and-craft succeed using `~16 ~ ~2`; repeat with no reachable table and verify the clear failure state.
+- [ ] **Failure handling:** verify cancellation, stale sources, and a near-full player inventory do not create or destroy items.
 
 Only crafting-table recipes and player-inventory recipes are supported; smelting and other processing
-stations are intentionally not part of the fixture or planner.
-
-For the manual pass, use `./gradlew runClient`, record each case with its setup and expected/actual result,
-and keep screenshots under `build/run/clientGameTest/screenshots/` plus relevant lines from `logs/latest.log`.
+stations are intentionally not part of the fixture or planner. Record each manual case's setup,
+expected result, actual result, and screenshot/log path. Manual screenshots/logs are evidence distinct from
+JUnit, `build`, headless GameTest, and client GameTest results.
 
 ## Modules
 
