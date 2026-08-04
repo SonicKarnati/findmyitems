@@ -12,6 +12,8 @@ import dev.smpb.findmyitems.model.BlockPosition;
 import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
+import dev.smpb.findmyitems.retrieval.Reachability;
+import dev.smpb.findmyitems.retrieval.TargetKind;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
@@ -121,6 +123,67 @@ public final class FindMyItemsGameTest {
 
         helper.assertTrue(!took, "retrieve should fail beyond 5 blocks");
         helper.assertTrue(chest.getItem(0).getCount() == 64, "chest contents must be untouched");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveRefusesChestBlockedByStone(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
+        var pos = helper.absolutePos(CHEST);
+        helper.setBlock(pos.north(), Blocks.STONE);
+        var player = helper.makeMockServerPlayerInLevel();
+        player.setPos(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() - 2.5);
+
+        var took = RetrieveHandler.retrieve(player, pos, dimension(helper),
+                "minecraft:diamond", "{}", 1);
+
+        helper.assertTrue(!took, "a chest hidden behind stone must not be actionable by radius alone");
+        helper.assertTrue(chest.getItem(0).getCount() == 64, "blocked chest contents must be untouched");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrieveRefusesWrongContainerHandler(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 64));
+        var pos = helper.absolutePos(CHEST);
+        helper.setBlock(CHEST, Blocks.BARREL);
+        helper.assertTrue(helper.getBlockState(CHEST).is(Blocks.BARREL), "fixture should replace the chest with a barrel");
+        var player = playerNextToChest(helper);
+
+        var took = RetrieveHandler.retrieve(player, pos, dimension(helper),
+                "minecraft:diamond", "{}", 1, 0, ContainerKind.CHEST);
+
+        helper.assertTrue(!took, "a changed target handler must not satisfy the old chest target");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 0,
+                "changed target must not move items into the player");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void reachabilityClassifiesCraftingTableAndRange(GameTestHelper helper) {
+        helper.setBlock(CHEST, Blocks.CRAFTING_TABLE);
+        var pos = helper.absolutePos(CHEST);
+        var player = playerNextToChest(helper);
+        var dimension = dimension(helper);
+
+        var nearby = Reachability.check(helper.getLevel(), player, pos, dimension,
+                TargetKind.CRAFTING_TABLE, 0);
+        helper.assertTrue(nearby.actionable() && nearby.reason() == Reachability.Reason.ACTIONABLE,
+                "nearby crafting table should be actionable: " + nearby);
+        helper.assertTrue(nearby.handlerExpectation() == Reachability.HandlerExpectation.CRAFTING_TABLE,
+                "crafting table should carry its expected handler");
+
+        player.setPos(pos.getX() + 40.5, pos.getY() + 1.0, pos.getZ() + 0.5);
+        var far = Reachability.check(helper.getLevel(), player, pos, dimension,
+                TargetKind.CRAFTING_TABLE, 0);
+        helper.assertTrue(!far.actionable() && far.reason() == Reachability.Reason.OUT_OF_RANGE,
+                "crafting table outside vanilla range must be rejected: " + far);
+
+        helper.setBlock(CHEST, Blocks.STONE);
+        var wrong = Reachability.check(helper.getLevel(), player, pos, dimension,
+                TargetKind.CRAFTING_TABLE, 64);
+        helper.assertTrue(!wrong.actionable() && wrong.reason() == Reachability.Reason.WRONG_BLOCK,
+                "wrong block must not satisfy a crafting-table target: " + wrong);
         helper.succeed();
     }
 

@@ -18,7 +18,9 @@ import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
+import dev.smpb.findmyitems.retrieval.ReachabilityService;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
+import dev.smpb.findmyitems.retrieval.TargetKind;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -108,6 +110,7 @@ public final class CatalogScreen extends Screen {
 
     private final ContainerIndex index;
     private final ModConfig config;
+    private final ReachabilityService reachability;
     private EditBox searchField;
     private EditBox amountField;
     private RowList rowList;
@@ -149,6 +152,7 @@ public final class CatalogScreen extends Screen {
         super(Component.translatable("screen.findmyitems.catalog"));
         this.index = index;
         this.config = config;
+        this.reachability = new ReachabilityService(() -> config.retrieveDistanceBlocks);
     }
 
     /**
@@ -780,7 +784,7 @@ public final class CatalogScreen extends Screen {
             if (world == null) return;
 
             var success = RetrieveHandler.retrieve(
-                    serverPlayer, mcPos, dim, itemId, componentsJson, requested, reach);
+                    serverPlayer, mcPos, dim, itemId, componentsJson, requested, reach, source.source().kind());
             if (!success) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -837,7 +841,8 @@ public final class CatalogScreen extends Screen {
             var world = server.getLevel(worldKey);
             if (world == null) return;
 
-            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested, reach);
+            var moved = RetrieveHandler.deposit(serverPlayer, mcPos, itemId, componentsJson, requested, reach,
+                    source.source().kind());
             if (moved == 0) return;
 
             var be = world.getBlockEntity(mcPos);
@@ -928,13 +933,22 @@ public final class CatalogScreen extends Screen {
         return item.sources().stream()
                 .filter(s -> s.source().dimension().equals(dimension))
                 .filter(s -> !s.source().positions().isEmpty())
+                .filter(s -> s.count() > 0)
                 .min(Comparator.comparingDouble(s -> distanceSqr(s.source())))
                 .orElse(null);
     }
 
     private SourceResult nearestReachableSource(ItemResult item) {
-        var nearest = nearestSource(item);
-        return nearest != null && inReach(nearest.source()) ? nearest : null;
+        var player = Minecraft.getInstance().player;
+        if (player == null) return null;
+        var dimension = player.level().dimension().identifier().toString();
+        return item.sources().stream()
+                .filter(s -> s.count() > 0)
+                .filter(s -> s.source().dimension().equals(dimension))
+                .filter(s -> !s.source().positions().isEmpty())
+                .filter(s -> inReach(s.source()))
+                .min(Comparator.comparingDouble(s -> distanceSqr(s.source())))
+                .orElse(null);
     }
 
     /** Defers to the same reach rule the server enforces, rather than re-deriving a radius here. */
@@ -942,7 +956,7 @@ public final class CatalogScreen extends Screen {
         var player = Minecraft.getInstance().player;
         if (player == null || source.positions().isEmpty()) return false;
         var p = source.positions().getFirst();
-        return RetrieveHandler.inReach(player, new BlockPos(p.x(), p.y(), p.z()), config.retrieveDistanceBlocks);
+        return reachability.check(new BlockPos(p.x(), p.y(), p.z()), TargetKind.CONTAINER).actionable();
     }
 
     private static double distanceSqr(SourceKey source) {
@@ -1382,7 +1396,7 @@ public final class CatalogScreen extends Screen {
 
             var buttonY = middle - BUTTON_SIZE / 2;
             var locateX = right - BUTTON_SIZE;
-            var locatable = !card.key().positions().isEmpty();
+            var locatable = card.itemCount() > 0 && !card.key().positions().isEmpty();
 
             var textLeft = left + SLOT_SIZE + 8;
             graphics.enableScissor(textLeft, top, locateX - GAP, top + ROW_HEIGHT);
@@ -1548,7 +1562,7 @@ public final class CatalogScreen extends Screen {
             return BlockPos.betweenClosedStream(center.offset(-radius, -radius, -radius),
                             center.offset(radius, radius, radius))
                     .anyMatch(pos -> player.level().getBlockState(pos).is(Blocks.CRAFTING_TABLE)
-                            && RetrieveHandler.inReach(player, pos, config.retrieveDistanceBlocks));
+                            && reachability.check(pos, TargetKind.CRAFTING_TABLE).actionable());
         }
         private int statusColor() {
             if (material.missing() == 0) return TEXT_OK;

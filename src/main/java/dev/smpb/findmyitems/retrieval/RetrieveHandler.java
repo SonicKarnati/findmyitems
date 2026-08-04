@@ -1,6 +1,7 @@
 package dev.smpb.findmyitems.retrieval;
 
 import dev.smpb.findmyitems.observation.SlotReader;
+import dev.smpb.findmyitems.model.ContainerKind;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -11,16 +12,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EnderChestBlock;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 
 public final class RetrieveHandler {
     /** Matches {@link dev.smpb.findmyitems.observation.SlotReader}'s indexing depth. */
     private static final int MAX_NESTING = 4;
-    /** Extra slack on top of vanilla block reach, in blocks. */
-    private static final double REACH_PADDING = 1.0;
-
     private RetrieveHandler() {}
 
     public static boolean retrieve(
@@ -31,7 +28,7 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, 0);
+        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, 0, null);
     }
 
     public static boolean retrieve(
@@ -43,9 +40,25 @@ public final class RetrieveHandler {
             int amount,
             int maxReachBlocks
     ) {
-        if (!inReach(player, pos, maxReachBlocks)) return false;
+        return retrieve(player, pos, dimensionId, itemId, componentsJson, amount, maxReachBlocks, null);
+    }
 
-        var container = containerAt(player, pos);
+    public static boolean retrieve(
+            ServerPlayer player,
+            BlockPos pos,
+            String dimensionId,
+            String itemId,
+            String componentsJson,
+            int amount,
+            int maxReachBlocks,
+            ContainerKind expectedContainer
+    ) {
+        if (!inReach(player, pos, maxReachBlocks)) return false;
+        var facts = Reachability.check(player.level(), player, pos, dimensionId,
+                TargetKind.CONTAINER, expectedContainer, maxReachBlocks);
+        if (!facts.actionable()) return false;
+
+        var container = containerAt(player, pos, expectedContainer);
         if (container == null) return false;
 
         var remaining = amount;
@@ -94,7 +107,7 @@ public final class RetrieveHandler {
             String componentsJson,
             int amount
     ) {
-        return deposit(player, pos, itemId, componentsJson, amount, 0);
+        return deposit(player, pos, itemId, componentsJson, amount, 0, null);
     }
 
     public static int deposit(
@@ -105,9 +118,25 @@ public final class RetrieveHandler {
             int amount,
             int maxReachBlocks
     ) {
-        if (!inReach(player, pos, maxReachBlocks)) return 0;
+        return deposit(player, pos, itemId, componentsJson, amount, maxReachBlocks, null);
+    }
 
-        var container = containerAt(player, pos);
+    public static int deposit(
+            ServerPlayer player,
+            BlockPos pos,
+            String itemId,
+            String componentsJson,
+            int amount,
+            int maxReachBlocks,
+            ContainerKind expectedContainer
+    ) {
+        if (!inReach(player, pos, maxReachBlocks)) return 0;
+        var facts = Reachability.check(player.level(), player, pos,
+                player.level().dimension().identifier().toString(), TargetKind.CONTAINER,
+                expectedContainer, maxReachBlocks);
+        if (!facts.actionable()) return 0;
+
+        var container = containerAt(player, pos, expectedContainer);
         if (container == null) return 0;
         if (!alreadyStocks(player, container, itemId, componentsJson)) return 0;
 
@@ -198,13 +227,16 @@ public final class RetrieveHandler {
      *
      * @return null if there is nothing here to take from
      */
-    private static Container containerAt(ServerPlayer player, BlockPos pos) {
+    private static Container containerAt(ServerPlayer player, BlockPos pos, ContainerKind expectedContainer) {
         var world = player.level();
         // Asked first, and only because retrieval reach is configurable: reading a block state is
         // what forces a chunk to load, so a raised reach would otherwise generate terrain on click.
         if (!world.isLoaded(pos)) return null;
         var state = world.getBlockState(pos);
         var block = state.getBlock();
+
+        if (expectedContainer != null && !Reachability.expectedBlock(world, pos,
+                TargetKind.CONTAINER, expectedContainer)) return null;
 
         if (block instanceof EnderChestBlock) return player.getEnderChestInventory();
         if (block instanceof ChestBlock chest) return ChestBlock.getContainer(chest, state, world, pos, true);
@@ -297,7 +329,7 @@ public final class RetrieveHandler {
      * <p>The previous check measured feet-to-block-centre, which reads as roughly a block shorter
      * than the reach a player actually has: vanilla measures eye position to the nearest point of
      * the block's box. Deferring to {@link Player#isWithinBlockInteractionRange} fixes that at the
-     * source, and {@link #REACH_PADDING} then buys back a little more so a chest you can plainly
+     * source, and the shared reach helper then buys back a little more so a chest you can plainly
      * click is never refused by the catalog.
      */
     public static boolean inReach(Player player, BlockPos pos) {
@@ -313,10 +345,7 @@ public final class RetrieveHandler {
      * not what anyone is asking about.
      */
     public static boolean inReach(Player player, BlockPos pos, int maxReachBlocks) {
-        if (player.isWithinBlockInteractionRange(pos, REACH_PADDING)) return true;
-        if (maxReachBlocks <= 0) return false;
-        return player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos))
-                <= (double) maxReachBlocks * maxReachBlocks;
+        return Reachability.inRange(player, pos, maxReachBlocks);
     }
 
     public static int defaultAmount(String itemId) {

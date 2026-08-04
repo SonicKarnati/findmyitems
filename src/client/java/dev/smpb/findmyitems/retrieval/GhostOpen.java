@@ -1,5 +1,6 @@
 package dev.smpb.findmyitems.retrieval;
 
+import dev.smpb.findmyitems.FindMyItemsClient;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.Minecraft;
@@ -55,8 +56,9 @@ public final class GhostOpen {
 
         // One at a time. And never while sneaking: a sneaking right-click on a chest places the
         // held block instead of opening it, which would be a genuinely destructive surprise.
-        if (player == null || mc.gameMode == null || phase != Phase.IDLE || player.isShiftKeyDown()) {
-            action.run();
+        if (player == null || mc.gameMode == null || phase != Phase.IDLE || player.isShiftKeyDown()
+                || !new ReachabilityService(() -> FindMyItemsClient.config().retrieveDistanceBlocks)
+                .check(pos, TargetKind.CONTAINER).actionable()) {
             return;
         }
 
