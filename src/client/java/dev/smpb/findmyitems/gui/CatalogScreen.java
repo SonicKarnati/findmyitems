@@ -2,7 +2,11 @@ package dev.smpb.findmyitems.gui;
 
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
+import dev.smpb.findmyitems.craft.CraftingPlan;
 import dev.smpb.findmyitems.craft.CraftingPlanner;
+import dev.smpb.findmyitems.craft.DisplayPlan;
+import dev.smpb.findmyitems.craft.PlanningInventory;
+import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.config.ModConfig;
 import dev.smpb.findmyitems.index.ContainerIndex;
 import dev.smpb.findmyitems.index.IndexedContainer;
@@ -93,11 +97,11 @@ public final class CatalogScreen extends Screen {
     public enum Layout { LIST, GRID }
 
     /** Rebuilt only when the recipes or the index actually change — see the methods that read them. */
-    private static Set<Item> cachedCraftableSource;
+    private static Set<StackKey> cachedCraftableSource;
     private static List<ItemStack> cachedCraftableStacks = List.of();
     private static List<SearchableItem> cachedSearchableItems;
 
-    private Map<String, Integer> cachedStock;
+    private Map<StackKey, Long> cachedStock;
     private long cachedStockRevision = -1;
 
     private final ContainerIndex index;
@@ -556,9 +560,12 @@ public final class CatalogScreen extends Screen {
             return List.of();
         }
 
-        var plan = CraftingPlanner.plan(server.getRecipeManager(), level, target, amount, stock());
+        var catalog = RecipeCatalog.from(server.getRecipeManager(), level);
+        var targetKey = new StackKey(BuiltInRegistries.ITEM.getKey(target).toString(), "{}");
+        var plan = CraftingPlanner.plan(catalog, targetKey, amount, PlanningInventory.of(stock()),
+                dev.smpb.findmyitems.craft.PlanningPolicy.DEFAULT);
         var rows = new ArrayList<Row>();
-        flatten(plan, 0, rows);
+        for (var row : DisplayPlan.flatten(plan)) rows.add(new MaterialRow(row));
         resultCount = rows.size();
         return rows;
     }
@@ -588,22 +595,15 @@ public final class CatalogScreen extends Screen {
      * same set instance until a datapack reload replaces it, so that instance is the cache key.
      */
     private static List<ItemStack> craftableStacks(RecipeManager recipes, Level level) {
-        var craftable = CraftingPlanner.craftable(recipes, level);
+        var craftable = RecipeCatalog.from(recipes, level).craftableRoots();
         if (craftable != cachedCraftableSource) {
             cachedCraftableStacks = craftable.stream()
-                    .map(ItemStack::new)
+                    .map(CatalogScreen::buildStack)
                     .sorted(Comparator.comparing(stack -> stack.getHoverName().getString(), String.CASE_INSENSITIVE_ORDER))
                     .toList();
             cachedCraftableSource = craftable;
         }
         return cachedCraftableStacks;
-    }
-
-    private void flatten(CraftingPlanner.Material material, int depth, List<Row> out) {
-        out.add(new MaterialRow(material, depth));
-        for (var child : material.children()) {
-            flatten(child, depth + 1, out);
-        }
     }
 
     /**
@@ -612,13 +612,13 @@ public final class CatalogScreen extends Screen {
      * <p>Cached against the index revision: the crafting view asks for this on every keystroke, and
      * a full {@code search("")} walks every slot of every container to answer it.
      */
-    private Map<String, Integer> stock() {
+    private Map<StackKey, Long> stock() {
         if (cachedStock != null && cachedStockRevision == index.revision()) {
             return cachedStock;
         }
-        var counts = new HashMap<String, Integer>();
+        var counts = new HashMap<StackKey, Long>();
         for (var result : index.search("")) {
-            counts.merge(result.key().itemId(), result.totalCount(), Integer::sum);
+            counts.merge(result.key(), (long) result.totalCount(), Math::addExact);
         }
         cachedStock = counts;
         cachedStockRevision = index.revision();
@@ -906,7 +906,7 @@ public final class CatalogScreen extends Screen {
     }
 
     /** Stack-size style label: 4 chars max, so it fits in the item slot corner. */
-    static String compactCount(int count) {
+    static String compactCount(long count) {
         if (count < 1000) return String.valueOf(count);
         if (count < 100_000) return (count / 1000) + "k";
         return "99k+";
@@ -1291,29 +1291,27 @@ public final class CatalogScreen extends Screen {
         }
     }
 
-    /** Crafting view: one node of the material tree, indented by depth. */
+    /** Crafting view: one semantic display row from the authoritative planner. */
     private final class MaterialRow extends Row {
-        private final CraftingPlanner.Material material;
-        private final int depth;
+        private final DisplayPlan.Row material;
 
-        MaterialRow(CraftingPlanner.Material material, int depth) {
+        MaterialRow(DisplayPlan.Row material) {
             this.material = material;
-            this.depth = depth;
         }
 
         @Override
         public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
             var top = getY();
-            var left = getContentX() + depth * INDENT;
+            var left = getContentX() + material.depth() * INDENT;
             var right = getContentRight();
             var middle = top + ROW_HEIGHT / 2;
-            var stack = material.stack();
+            var stack = buildStack(material.item());
 
-            slot(graphics, stack, left, middle - SLOT_SIZE / 2, compactCount(material.needed()));
+            slot(graphics, stack, left, middle - SLOT_SIZE / 2, compactCount(material.requested()));
 
             var buttonY = middle - BUTTON_SIZE / 2;
             var locateX = right - BUTTON_SIZE;
-            var found = material.available() > 0 ? lookup(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString()) : null;
+            var found = material.indexed() > 0 ? lookup(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString()) : null;
 
             var textLeft = left + SLOT_SIZE + 8;
             graphics.enableScissor(textLeft, top, locateX - GAP, top + ROW_HEIGHT);
@@ -1334,23 +1332,21 @@ public final class CatalogScreen extends Screen {
         }
 
         private String status() {
-            if (material.satisfied()) {
-                return Component.translatable("screen.findmyitems.craft.have", material.available()).getString();
+            if (material.missing() == 0) {
+                return Component.translatable("screen.findmyitems.craft.have", material.indexed()).getString();
             }
-            var key = material.isDeadEnd()
-                    ? "screen.findmyitems.craft.short"
-                    : "screen.findmyitems.craft.craft";
-            return Component.translatable(key, material.missing(), material.available()).getString();
+            var key = "screen.findmyitems.craft.short";
+            return Component.translatable(key, material.missing(), material.indexed()).getString();
         }
 
         private int statusColor() {
-            if (material.satisfied()) return TEXT_OK;
-            return material.isDeadEnd() ? TEXT_MISSING : TEXT_DIM;
+            if (material.missing() == 0) return TEXT_OK;
+            return TEXT_MISSING;
         }
 
         @Override
         public Component getNarration() {
-            return Component.literal(material.stack().getHoverName().getString() + " " + status());
+            return Component.literal(buildStack(material.item()).getHoverName().getString() + " " + status());
         }
     }
 

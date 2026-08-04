@@ -125,4 +125,87 @@ final class CraftingPlannerTest {
         assertTrue(plan.failedCandidates() > 0);
         assertEquals(2, plan.missing("example:output"));
     }
+
+    @Test
+    void ingredientAggregationOverflowFailsTheCandidate() {
+        var catalog = catalog(recipe("example:output", 1,
+                new String[]{"example:input"}, new String[]{"example:input"}));
+        var plan = CraftingPlanner.plan(catalog, key("example:output"), Long.MAX_VALUE,
+                PlanningInventory.empty(), PlanningPolicy.DEFAULT);
+
+        assertTrue(plan.failedCandidates() > 0);
+        assertEquals(Long.MAX_VALUE, plan.missing("example:output"));
+    }
+
+    @Test
+    void ingredientAlternativesAreEvaluatedAsCandidates() {
+        var a = key("example:a");
+        var b = key("example:b");
+        var catalog = catalog(RecipeCatalog.recipe(key("example:widget"), 1,
+                List.of(List.of(a, b), List.of(a, b))));
+
+        var plan = CraftingPlanner.plan(catalog, key("example:widget"), 1,
+                PlanningInventory.of(Map.of(a, 1L, b, 1L)), PlanningPolicy.DEFAULT);
+
+        assertTrue(plan.missing().isEmpty());
+        assertEquals(0, plan.remainingInventory().count(a));
+        assertEquals(0, plan.remainingInventory().count(b));
+    }
+
+    @Test
+    void policyRejectsUnsupportedStationAndRecipeSize() {
+        var tableRecipe = RecipeCatalog.recipe(key("example:table_output"), 1,
+                List.of(List.of(key("example:material"))), RecipeCatalog.Station.CRAFTING_TABLE, 3, 3, Map.of());
+        var inventoryRecipe = RecipeCatalog.recipe(key("example:inventory_output"), 1,
+                List.of(List.of(key("example:material"))), RecipeCatalog.Station.INVENTORY, 2, 2, Map.of());
+        var catalog = catalog(tableRecipe, inventoryRecipe);
+        var stock = PlanningInventory.of(Map.of(key("example:material"), 1L));
+
+        var tableDenied = CraftingPlanner.plan(catalog, key("example:table_output"), 1, stock,
+                new PlanningPolicy(false, true, 64));
+        var inventoryAllowed = CraftingPlanner.plan(catalog, key("example:inventory_output"), 1, stock,
+                new PlanningPolicy(false, true, 64));
+
+        assertEquals(1, tableDenied.missing("example:table_output"));
+        assertTrue(inventoryAllowed.missing().isEmpty());
+    }
+
+    @Test
+    void recipeRemaindersAreReturnedAndConservationIsExplicit() {
+        var bucket = key("minecraft:bucket");
+        var waterBucket = key("minecraft:water_bucket");
+        var catalog = catalog(RecipeCatalog.recipe(key("example:stew"), 1,
+                List.of(List.of(waterBucket)), RecipeCatalog.Station.INVENTORY, 2, 2,
+                Map.of(waterBucket, 1L, bucket, 1L)));
+        var initial = PlanningInventory.of(Map.of(waterBucket, 1L));
+        var plan = CraftingPlanner.plan(catalog, key("example:stew"), 1, initial, PlanningPolicy.DEFAULT);
+
+        assertEquals(1, plan.remainders().get(bucket));
+        assertEquals(1, plan.consumedDelta().get(waterBucket));
+        assertEquals(1, plan.remainingInventory().count(bucket));
+        assertEquals(initial.count(waterBucket), plan.consumedDelta().get(waterBucket));
+    }
+
+    @Test
+    void cancellationStopsCandidateEvaluation() {
+        var plan = CraftingPlanner.plan(catalog(recipe("example:output", 1, new String[]{"example:input"})),
+                key("example:output"), 1, PlanningInventory.empty(), PlanningPolicy.DEFAULT, () -> true);
+
+        assertTrue(plan.cancelled());
+        assertEquals(1, plan.missing("example:output"));
+    }
+
+    @Test
+    void catalogGenerationInvalidatesMemoizationAndInventoryIsPartOfState() {
+        var first = catalog(recipe("example:output", 1, new String[]{"example:a"}));
+        var second = catalog(recipe("example:output", 1, new String[]{"example:b"}));
+        assertNotEquals(first.generation(), second.generation());
+
+        var firstPlan = CraftingPlanner.plan(first, key("example:output"), 1,
+                PlanningInventory.of(Map.of(key("example:a"), 1L)), PlanningPolicy.DEFAULT);
+        var secondPlan = CraftingPlanner.plan(second, key("example:output"), 1,
+                PlanningInventory.of(Map.of(key("example:b"), 1L)), PlanningPolicy.DEFAULT);
+        assertTrue(firstPlan.missing().isEmpty());
+        assertTrue(secondPlan.missing().isEmpty());
+    }
 }

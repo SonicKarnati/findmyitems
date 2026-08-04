@@ -1,70 +1,39 @@
-# Task 3 Report
+# Task 3 Reviewer-Fix Report
 
-## Files Changed
+## Fixes
 
-- `src/client/java/dev/smpb/findmyitems/search/InventorySearchController.java`
-  - Builds a searchable document from the hover name, every rendered tooltip line, and the full registry identifier.
-  - Uses the active client level/player with `ItemStack#getTooltipLines` and preserves `Locale.ROOT` normalization.
-- `src/gametest/java/dev/smpb/findmyitems/test/FindMyItemsClientGameTest.java`
-  - Adds client-game coverage for Smite, level IV, unrelated Sharpness, and the item path.
-- `.superpowers/sdd/task-3-report.md`
-  - This report.
+- Recipe definitions retain station, width, height, and per-craft remainder metadata. Planning policy now rejects disabled stations and recipes larger than the supported inventory/table grid.
+- Recipe catalog extraction derives ingredient, output, and remainder `StackKey` values through registry-backed component serialization. No catalog path hard-codes `{}`.
+- Ingredient alternatives are enumerated and scored as candidates. Shared stock is isolated per candidate and competing recipe alternatives are compared lexicographically.
+- Long arithmetic uses checked add, subtract, multiply, and aggregation paths. Overflow rejects the candidate instead of wrapping.
+- Crafting remainders are returned separately and added to the simulated remaining inventory. Tests cover water-bucket-style conservation.
+- Cancellation is checked at candidate/ingredient evaluation boundaries. Memo keys include catalog generation, target, quantity, full component-aware inventory, policy, and active path.
+- Display root and node IDs derive from item identity and semantic ancestry rather than list positions. Root nodes retain their `PlanScore`.
+- Removed the old depth-limited, item-ID planner and migrated `CatalogScreen` to the catalog, immutable inventory, planner, and display flattening APIs.
+- Removed unused catalog imports and added regressions for policy, alternatives, remainders, conservation, cancellation, memo state/invalidation, semantic IDs, score preservation, and overflow.
 
 ## Verification
 
-### `./gradlew compileTestJava`
+Commands ran serially in the requested order after the final source change:
 
-Output: `BUILD SUCCESSFUL in 4s`.
+1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
+   - `BUILD SUCCESSFUL in 4s`
+   - 17 focused planner/display tests passed.
+2. `./gradlew test`
+   - `BUILD SUCCESSFUL in 6s`
+   - Full JUnit suite passed.
+3. `./gradlew build`
+   - `BUILD SUCCESSFUL in 11s`
+   - Headless game tests passed: `All 27 required tests passed :)`.
+4. `./gradlew runGameTest`
+   - `BUILD SUCCESSFUL in 10s`
+   - Headless game tests passed: `All 27 required tests passed :)`.
 
-### `./gradlew build`
-
-Output: `BUILD SUCCESSFUL in 14s`.
-
-The build ran 25 headless game tests; all required server game tests passed. Gradle reported existing deprecation and `sun.misc.Unsafe` warnings, but no test failures.
-
-### `./gradlew runGameTest`
-
-Output: `BUILD SUCCESSFUL in 12s`.
-
-Headless output: `25 GAME TESTS COMPLETE` and `All 25 required tests passed :)`.
-
-### Self-review
-
-`git diff --check` passed. The diff is limited to the controller and its client game-test fixture. No catalog search, component identity, or serialization code was changed.
+`git diff --check` passed.
 
 ## Concerns
 
-- The new client assertion is in the existing client game-test fixture; `runGameTest` does not execute client game tests. Running `runClientGameTest` was not performed because it opens a real client window.
-- The matcher deliberately uses `TooltipFlag.NORMAL`, matching the normal rendered tooltip rather than advanced/debug text.
-- Gradle emits existing deprecation and `sun.misc.Unsafe` warnings; they did not affect verification.
-
-## Review Fix Report
-
-### Changed Files
-
-- `src/gametest/java/dev/smpb/findmyitems/test/FindMyItemsClientGameTest.java`
-  - Adds a custom display-name assertion for `Stormblade`.
-  - Adds rejection coverage for the unrelated `sharpness v` enchantment-level phrase.
-  - Retains positive coverage for `smite`, `iv`, and `diamond_sword`, plus negative coverage for `sharpness`.
-- `.superpowers/sdd/task-3-report.md`
-  - This fix report.
-
-### Verification
-
-- `./gradlew runClientGameTest`
-  - First attempt exposed an invalid bare-`v` assertion because `v` is contained in valid `IV`.
-  - Second attempt exposed an invalid `diamond sword` assertion because the fixture intentionally renamed the item to `Stormblade`.
-  - Final attempt: `BUILD SUCCESSFUL in 29s`; the client game test completed without assertion failures.
-- `./gradlew build`
-  - `BUILD SUCCESSFUL in 10s`.
-  - Headless game-test output: `25 GAME TESTS COMPLETE` and `All 25 required tests passed :)`.
-- `./gradlew runGameTest`
-  - `BUILD SUCCESSFUL in 11s`.
-  - Output: `25 GAME TESTS COMPLETE` and `All 25 required tests passed :)`.
-- `git diff --check`
-  - Passed with no whitespace errors.
-
-### Concerns
-
-- The client test emits existing environment warnings, including missing optional `shulkerboxtooltip`, graphics-driver shader warnings, and unauthenticated profile-key/Realms requests; none caused test failure.
-- The matcher implementation was not weakened or changed; fixes are limited to correcting and extending review coverage.
+- Live recipe remainder extraction uses each ingredient item's vanilla crafting remainder; recipes whose remainder depends on a selected tag alternative may need richer per-alternative remainder metadata in a later recipe-catalog refinement.
+- Client game tests were not run because they open a real client window.
+- Gradle emits existing deprecation, `sun.misc.Unsafe`, and game-test server lag warnings; no test failures resulted.
+- The unrelated pre-existing `.superpowers/sdd/task-1-report.md` modification remains untouched.

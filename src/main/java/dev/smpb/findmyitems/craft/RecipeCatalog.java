@@ -7,12 +7,12 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.display.SlotDisplayContext;
 import net.minecraft.world.level.Level;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -31,13 +31,26 @@ public final class RecipeCatalog {
     private final Map<StackKey, Integer> sccIds;
     private final long generation;
 
-    public record RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions) {
+    public enum Station { INVENTORY, CRAFTING_TABLE }
+
+    public record RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions,
+                                   Station station, int width, int height,
+                                   Map<StackKey, Long> remainders) {
         public RecipeDefinition {
             if (outputBatch <= 0) throw new IllegalArgumentException("outputBatch must be positive");
+            if (width <= 0 || height <= 0) throw new IllegalArgumentException("recipe dimensions must be positive");
             ingredientOptions = ingredientOptions.stream().map(List::copyOf).toList();
             if (ingredientOptions.stream().anyMatch(List::isEmpty)) {
                 throw new IllegalArgumentException("ingredient alternatives must not be empty");
             }
+            remainders = Map.copyOf(remainders);
+            if (remainders.values().stream().anyMatch(value -> value == null || value < 0)) {
+                throw new IllegalArgumentException("remainder quantities must be non-negative");
+            }
+        }
+
+        public RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions) {
+            this(output, outputBatch, ingredientOptions, Station.INVENTORY, 2, 2, Map.of());
         }
     }
 
@@ -61,6 +74,12 @@ public final class RecipeCatalog {
         return new RecipeDefinition(output, batch, ingredientOptions);
     }
 
+    public static RecipeDefinition recipe(StackKey output, long batch, List<List<StackKey>> ingredientOptions,
+                                          Station station, int width, int height,
+                                          Map<StackKey, Long> remainders) {
+        return new RecipeDefinition(output, batch, ingredientOptions, station, width, height, remainders);
+    }
+
     public static RecipeCatalog from(RecipeManager manager, Level level) {
         var context = SlotDisplayContext.fromLevel(level);
         var found = new ArrayList<RecipeDefinition>();
@@ -70,17 +89,28 @@ public final class RecipeCatalog {
             for (var display : recipe.display()) {
                 for (var result : display.result().resolveForStacks(context)) {
                     if (result.isEmpty()) continue;
-                    var output = new StackKey(BuiltInRegistries.ITEM.getKey(result.getItem()).toString(),
-                            SlotReader.serializeComponents(result.getComponentsPatch(), level.registryAccess()));
+                    var output = stackKey(result, level);
+                    var placement = recipe.placementInfo();
+                    var width = recipe instanceof ShapedRecipe shaped ? shaped.getWidth() : 2;
+                    var height = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : 2;
+                    if (!(recipe instanceof ShapedRecipe) && placement.ingredients().size() > 4) {
+                        width = 3;
+                        height = 3;
+                    }
+                    var station = width <= 2 && height <= 2 ? Station.INVENTORY : Station.CRAFTING_TABLE;
                     var slots = new ArrayList<List<StackKey>>();
-                    for (Ingredient ingredient : recipe.placementInfo().ingredients()) {
+                    var remainders = new LinkedHashMap<StackKey, Long>();
+                    for (Ingredient ingredient : placement.ingredients()) {
                         var choices = new ArrayList<StackKey>();
                         for (var holderItem : (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) ingredient.items()::iterator) {
-                            choices.add(new StackKey(BuiltInRegistries.ITEM.getKey(holderItem.value()).toString(), "{}"));
+                            var ingredientStack = new net.minecraft.world.item.ItemStack(holderItem.value());
+                            choices.add(stackKey(ingredientStack, level));
+                            var remainder = ingredientStack.getItem().getCraftingRemainder().create();
+                            if (!remainder.isEmpty()) remainders.merge(stackKey(remainder, level), 1L, Math::addExact);
                         }
                         if (!choices.isEmpty()) slots.add(choices);
                     }
-                    found.add(new RecipeDefinition(output, result.getCount(), slots));
+                    found.add(new RecipeDefinition(output, result.getCount(), slots, station, width, height, remainders));
                 }
             }
         }
@@ -93,6 +123,11 @@ public final class RecipeCatalog {
     public int sccId(StackKey key) { return sccIds.getOrDefault(key, -1); }
     public boolean sameScc(StackKey left, StackKey right) { return sccId(left) >= 0 && sccId(left) == sccId(right); }
     public List<RecipeDefinition> recipes() { return recipes; }
+
+    public static StackKey stackKey(net.minecraft.world.item.ItemStack stack, Level level) {
+        return new StackKey(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
+                SlotReader.serializeComponents(stack.getComponentsPatch(), level.registryAccess()));
+    }
 
     private static Map<StackKey, Integer> classifySccs(List<RecipeDefinition> recipes) {
         var graph = new LinkedHashMap<StackKey, Set<StackKey>>();

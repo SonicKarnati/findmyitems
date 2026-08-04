@@ -23,8 +23,8 @@ final class DisplayPlanTest {
         var rows = DisplayPlan.flatten(List.of(left, right));
 
         assertEquals(List.of(0, 0), rows.stream().map(DisplayPlan.Row::depth).toList());
-        assertEquals(List.of("root-0", "root-1"), rows.stream().map(DisplayPlan.Row::rootId).toList());
-        assertEquals(List.of("root-0", "root-1"), rows.stream().map(DisplayPlan.Row::nodeId).toList());
+        assertEquals(List.of("example:left[{}]", "example:right[{}]"), rows.stream().map(DisplayPlan.Row::rootId).toList());
+        assertEquals(List.of("example:left[{}]", "example:right[{}]"), rows.stream().map(DisplayPlan.Row::nodeId).toList());
         assertTrue(rows.stream().allMatch(row -> row.parentId() == null));
     }
 
@@ -39,8 +39,16 @@ final class DisplayPlanTest {
                 Map.of(), Map.of(), Map.of(), new PlanScore(0, 0, 0, 0, 0, 0, 0, 0)));
 
         assertEquals(List.of(0, 1), rows.stream().map(DisplayPlan.Row::depth).toList());
-        assertEquals("root-0", rows.getFirst().rootId());
-        assertEquals("root-0", rows.get(1).rootId());
-        assertEquals("root-0", rows.get(1).parentId());
+        assertEquals("example:root[{}]", rows.getFirst().rootId());
+        assertEquals("example:root[{}]", rows.get(1).rootId());
+        assertEquals("example:root[{}]", rows.get(1).parentId());
+    }
+
+    @Test
+    void rootNodeCarriesItsScore() {
+        var score = new PlanScore(1, 2, 3, 4, 5, 6, 7, 8);
+        var plan = CraftingPlan.root(key("example:root"), 1, PlanningInventory.empty(), score);
+
+        assertEquals(score, plan.root().score());
     }
 }
