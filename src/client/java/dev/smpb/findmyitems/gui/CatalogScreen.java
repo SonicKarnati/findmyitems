@@ -561,6 +561,10 @@ public final class CatalogScreen extends Screen {
         }
         if (index.revision() == lastSeenRevision) return;
         lastSeenRevision = index.revision();
+        if (FindMyItemsClient.executor().busy()) {
+            updateResults(true);
+            return;
+        }
         invalidateQuery();
         updateResults(true);
         if (selectedOutput != null) requestPlan();
@@ -661,6 +665,9 @@ public final class CatalogScreen extends Screen {
     }
 
     private void selectOutput(StackKey key) {
+        if (FindMyItemsClient.executor().busy()) {
+            FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED);
+        }
         var catalog = currentCatalog();
         if (catalog == null) return;
         selectedOutput = new OutputIdentity(key, catalog.generation());
@@ -735,13 +742,20 @@ public final class CatalogScreen extends Screen {
             var remaining = entry.getValue();
             for (var source : result.sources()) {
                 if (source.source().positions().isEmpty()) continue;
-                var count = (int) Math.min(remaining, source.count());
-                if (count <= 0) continue;
                 var positions = source.source().positions().stream()
                         .map(p -> new BlockPos(p.x(), p.y(), p.z())).toList();
-                sources.add(new CraftingExecutor.SourceSnapshot(entry.getKey(), source.source().dimension(),
-                        source.source().kind(), positions, -1, count));
-                remaining -= count;
+                for (var location : source.locations()) {
+                    if (!location.stack().key().equals(entry.getKey())) continue;
+                    var count = (int) Math.min(remaining, location.stack().count());
+                    if (count <= 0) continue;
+                    sources.add(new CraftingExecutor.SourceSnapshot(entry.getKey(), source.source().dimension(),
+                            source.source().kind(), positions, location.stack().provenance().slots(), count,
+                            source.contentsKey(), result.sources().stream()
+                                    .filter(other -> other.contentsKey().equals(source.contentsKey()))
+                                    .map(SourceResult::source).distinct().toList(), buildStack(entry.getKey())));
+                    remaining -= count;
+                    if (remaining == 0) break;
+                }
                 if (remaining == 0) break;
             }
         }

@@ -9,6 +9,8 @@ import dev.smpb.findmyitems.craft.PlanScore;
 import dev.smpb.findmyitems.craft.PlanningInventory;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
+import dev.smpb.findmyitems.model.BlockPosition;
+import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.retrieval.CraftingExecutor;
 import dev.smpb.findmyitems.retrieval.ExecutionStatus;
@@ -34,6 +36,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * End-to-end test that boots the real Minecraft client, creates a world, and drives the mod
@@ -87,6 +90,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             enderChestTotalsStayHonest(context, server);
 
             openCatalog(context);
+            assertTickDrivenDiamondPickaxe(context);
             assertLocateAndAutomaticRetrievalLabels(context);
             assertDefaultCatalogAmount(context);
             search(context, "diamond");
@@ -162,13 +166,61 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             var first = executor.start(request);
             var second = executor.start(request);
             var cancelled = executor.cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED);
-            return new ExecutionStatus[] {first, second, cancelled};
+            executor.start(request);
+            executor.tick();
+            var actions = executor.actionsLastTick();
+            var replaced = executor.replace(request);
+            return new ExecutionStatus[] {first, second, cancelled, replaced,
+                    actions <= 1 ? ExecutionStatus.COMPLETE : ExecutionStatus.FAILED};
         });
         if (result[0] != ExecutionStatus.CALCULATING || result[1] != ExecutionStatus.BUSY
-                || result[2] != ExecutionStatus.CANCELLED) {
+                || result[2] != ExecutionStatus.CANCELLED || result[3] != ExecutionStatus.CALCULATING
+                || result[4] != ExecutionStatus.COMPLETE) {
             throw new AssertionError("executor must reject overlapping requests and record cancellation: "
                     + java.util.Arrays.toString(result));
         }
+    }
+
+    private static void assertTickDrivenDiamondPickaxe(ClientGameTestContext context) {
+        var result = context.computeOnClient(mc -> {
+            var output = new StackKey("minecraft:diamond_pickaxe", "{}");
+            var diamonds = new StackKey("minecraft:diamond", "{}");
+            var sticks = new StackKey("minecraft:stick", "{}");
+            var node = CraftingPlan.node(output, 1, 1, 1, List.of(), Map.of(), Map.of(), null);
+            var plan = CraftingPlan.of(node, PlanningInventory.empty(),
+                    Map.of(diamonds, 3L, sticks, 2L), Map.of(), Map.of(),
+                    new PlanScore(0, 0, 1, 0, 1));
+            var positions = List.of(new BlockPosition(CHEST.getX(), CHEST.getY(), CHEST.getZ()));
+            var contents = SourceKey.storage(mc.level.dimension().identifier().toString(), ContainerKind.CHEST, positions);
+            var diamondSource = new CraftingExecutor.SourceSnapshot(diamonds,
+                    mc.level.dimension().identifier().toString(), ContainerKind.CHEST,
+                    List.of(CHEST), List.of(0), 3, contents, List.of(contents), new ItemStack(Items.DIAMOND));
+            var stickSource = new CraftingExecutor.SourceSnapshot(sticks,
+                    mc.level.dimension().identifier().toString(), ContainerKind.CHEST,
+                    List.of(CHEST), List.of(4), 2, contents, List.of(contents), new ItemStack(Items.STICK));
+            var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(diamondSource, stickSource),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_AND_CRAFT));
+            return output;
+        });
+        for (int tick = 0; tick < 140; tick++) {
+            context.waitTicks(1);
+            var complete = context.computeOnClient(mc -> FindMyItemsClient.executor().status()
+                    == ExecutionStatus.COMPLETE);
+            if (complete) break;
+        }
+        var complete = context.computeOnClient(mc -> FindMyItemsClient.executor().status());
+        if (complete != ExecutionStatus.COMPLETE) {
+            var diagnostics = context.computeOnClient(mc -> FindMyItemsClient.executor().state() + " "
+                    + FindMyItemsClient.executor().transferJournal() + " table="
+                    + FindMyItemsClient.executor().tableRequiredMaterials() + " "
+                    + FindMyItemsClient.executor().failureDiagnostics());
+            throw new AssertionError("tick-driven pickaxe plan did not complete: " + complete + " " + diagnostics);
+        }
+        var crafted = context.computeOnClient(mc -> mc.getSingleplayerServer().getPlayerList()
+                .getPlayer(mc.player.getUUID()).getInventory().countItem(Items.DIAMOND_PICKAXE));
+        if (crafted != 1) throw new AssertionError("expected one crafted diamond pickaxe, found " + crafted);
     }
 
     /** With an empty box the crafting view lists recipe roots, not expanded plans. */
@@ -416,8 +468,11 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                 chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
                 chest.setItem(2, shulkerHolding(new ItemStack(Items.GOLD_INGOT, BURIED_GOLD)));
                 chest.setItem(3, new ItemStack(Items.EMERALD, CHEST_EMERALDS));
+                chest.setItem(4, new ItemStack(Items.STICK, 12));
                 chest.setChanged();
             }
+
+            level.setBlockAndUpdate(new BlockPos(0, STAND.getY(), 3), Blocks.CRAFTING_TABLE.defaultBlockState());
 
             level.setBlockAndUpdate(ENDER, Blocks.ENDER_CHEST.defaultBlockState());
 

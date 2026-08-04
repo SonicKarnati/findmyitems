@@ -322,6 +322,28 @@ public final class RetrieveEdgeCaseGameTest {
         helper.succeed();
     }
 
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void exactNestedPathRefusesAChangedInnerSlot(GameTestHelper helper) {
+        var outer = new ItemStack(Items.SHULKER_BOX);
+        outer.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(
+                ItemStack.EMPTY, new ItemStack(Items.DIAMOND, 7))));
+        var chest = placeChest(helper, outer);
+        var player = playerNextToChest(helper);
+
+        var moved = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, List.of(0, 1), "minecraft:diamond", "{}", 7, 0);
+        helper.assertTrue(moved == 7, "the exact physical nested path should transfer its item");
+
+        chest.getItem(0).set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(
+                ItemStack.EMPTY, new ItemStack(Items.OAK_LOG, 7))));
+        var stale = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, List.of(0, 1), "minecraft:diamond", "{}", 7, 0);
+        helper.assertTrue(stale == 0, "a changed nested slot must not satisfy the old path");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 7,
+                "stale nested retrieval must not fabricate a second stack");
+        helper.succeed();
+    }
+
     /**
      * A configured reach opens a chest your arm cannot, and only when it is configured.
      *

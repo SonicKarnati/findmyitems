@@ -69,14 +69,17 @@ public final class SlotReader {
         var contents = stack.get(DataComponents.CONTAINER);
         if (contents == null) return;
 
-        for (var inner : (Iterable<ItemStack>) contents.nonEmptyItemCopyStream()::iterator) {
+        var items = contents.allItemsCopyStream().toList();
+        for (int physicalSlot = 0; physicalSlot < items.size(); physicalSlot++) {
+            var inner = items.get(physicalSlot);
+            if (inner.isEmpty()) continue;
             var slot = nextIndex[0]++;
             var path = new ArrayList<>(parentPath);
-            path.add(slot);
+            path.add(physicalSlot);
             out.add(snapshotStack(inner, slot, ctx, player,
                     new StackSnapshot.Provenance(path, holderSlot)));
             addNestedContents(out, inner, ctx, player, nextIndex, depth + 1, path,
-                    holderSlot >= 0 ? holderSlot : slot);
+                    holderSlot >= 0 ? holderSlot : physicalSlot);
         }
     }
 

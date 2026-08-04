@@ -44,6 +44,39 @@ public final class InventorySimulation {
         return new CapacityResult(true, 0, stacks, surplus, "");
     }
 
+    /** Simulates source transfers before applying the plan's consume/output deltas. */
+    public static CapacityResult simulateAfterGather(PlayerInventorySnapshot snapshot, CraftingPlan plan,
+                                                     Map<StackKey, Long> gathered,
+                                                     Map<StackKey, ItemStack> templates) {
+        var slots = new ArrayList<>(snapshot.copySlots());
+        for (var entry : gathered.entrySet()) {
+            var template = templates.getOrDefault(entry.getKey(), ItemStack.EMPTY);
+            if (template.isEmpty() || !insertRaw(slots, template, entry.getValue())) {
+                return unsafe(slots, 1, Map.of(), "gathered source " + entry.getKey());
+            }
+        }
+        return simulate(PlayerInventorySnapshot.of(slots, snapshot.registries()), plan);
+    }
+
+    private static boolean insertRaw(List<ItemStack> slots, ItemStack template, long amount) {
+        var remaining = amount;
+        for (var stack : slots) {
+            if (stack.isEmpty() || !ItemStack.isSameItemSameComponents(stack, template)) continue;
+            var room = stack.getMaxStackSize() - stack.getCount();
+            var added = (int) Math.min(remaining, room);
+            stack.grow(added);
+            remaining -= added;
+            if (remaining == 0) return true;
+        }
+        for (var index = 0; index < slots.size() && remaining > 0; index++) {
+            if (!slots.get(index).isEmpty()) continue;
+            var added = (int) Math.min(remaining, template.getMaxStackSize());
+            slots.set(index, template.copyWithCount(added));
+            remaining -= added;
+        }
+        return remaining == 0;
+    }
+
     private static CapacityResult unsafe(List<ItemStack> stacks, int required, Map<StackKey, Long> surplus,
                                          String reason) {
         return new CapacityResult(false, required, stacks, surplus, reason);

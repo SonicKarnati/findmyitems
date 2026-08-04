@@ -6,8 +6,10 @@ import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.config.ModConfig;
 import dev.smpb.findmyitems.index.ContainerIndex;
 import dev.smpb.findmyitems.model.ContainerKind;
+import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.observation.SlotReader;
+import dev.smpb.findmyitems.gui.CatalogScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.inventory.CraftingMenu;
@@ -16,7 +18,9 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
@@ -46,18 +50,36 @@ public final class CraftingExecutor {
     }
 
     public record SourceSnapshot(StackKey key, String dimension, ContainerKind kind,
-                                 List<BlockPos> positions, int slot, int count) {
+                                 List<BlockPos> positions, List<Integer> path, int count,
+                                 SourceKey contentsKey, List<SourceKey> accessSources,
+                                 ItemStack template) {
+        public SourceSnapshot(StackKey key, String dimension, ContainerKind kind,
+                              List<BlockPos> positions, int slot, int count) {
+            this(key, dimension, kind, positions, List.of(slot), count,
+                    storageKey(dimension, kind, positions),
+                    List.of(storageKey(dimension, kind, positions)), plainTemplate(key));
+        }
+
         public SourceSnapshot {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(dimension, "dimension");
             Objects.requireNonNull(kind, "kind");
             positions = List.copyOf(positions);
-            if (positions.isEmpty()) throw new IllegalArgumentException("source needs an access position");
-            if (slot < -1 || count <= 0) throw new IllegalArgumentException("invalid source snapshot");
+            path = List.copyOf(path);
+            Objects.requireNonNull(contentsKey, "contentsKey");
+            accessSources = List.copyOf(accessSources);
+            template = template.copyWithCount(1);
+            if (positions.isEmpty() || path.isEmpty() || path.stream().anyMatch(slot -> slot < 0)
+                    || count <= 0) throw new IllegalArgumentException("invalid source snapshot");
         }
 
         public BlockPos position() {
             return positions.getFirst();
+        }
+
+        public SourceSnapshot withCount(int nextCount) {
+            return new SourceSnapshot(key, dimension, kind, positions, path, nextCount,
+                    contentsKey, accessSources, template);
         }
     }
 
@@ -76,7 +98,20 @@ public final class CraftingExecutor {
     public enum State {
         IDLE, PREFLIGHT, GATHER, OPEN_SOURCE, WAIT_FOR_SOURCE, VALIDATE_SOURCE,
         TRANSFER, CLOSE_SOURCE, LOCATE_TABLE, OPEN_TABLE, WAIT_FOR_TABLE, VALIDATE_TABLE,
-        PLACE_RECIPE, TAKE_OUTPUT, COMPLETE, CANCELLED, FAILED
+            PLACE_RECIPE, TAKE_OUTPUT, WAIT_OUTPUT_SYNC, CLOSE_TABLE, COMPLETE, CANCELLED, FAILED
+    }
+
+    private static SourceKey storageKey(String dimension, ContainerKind kind, List<BlockPos> positions) {
+        var sourcePositions = positions.stream()
+                .map(pos -> new dev.smpb.findmyitems.model.BlockPosition(pos.getX(), pos.getY(), pos.getZ()))
+                .toList();
+        return SourceKey.storage(dimension, kind, sourcePositions);
+    }
+
+    private static ItemStack plainTemplate(StackKey key) {
+        return net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                net.minecraft.resources.Identifier.parse(key.itemId())).map(ItemStack::new)
+                .orElse(ItemStack.EMPTY);
     }
 
     private final ContainerIndex index;
@@ -90,6 +125,22 @@ public final class CraftingExecutor {
     private int sourceIndex;
     private int timeout;
     private boolean callbackPending;
+    private volatile long runToken;
+    private List<CraftingPlan.Node> craftNodes = List.of();
+    private int craftNodeIndex;
+    private int craftsRemaining;
+    private int ingredientIndex;
+    private boolean carryingIngredient;
+    private boolean ingredientPlaced;
+    private int sourceInventorySlot;
+    private RecipeCatalog.RecipeDefinition activeRecipe;
+    private boolean tableOpen;
+    private List<StackKey> tableRequiredMaterials = List.of();
+    private int actionsThisTick;
+    private int actionsLastTick;
+    private boolean menuActionPending;
+    private int outputWait;
+    private String failureDiagnostics = "";
 
     public CraftingExecutor(ContainerIndex index, ModConfig config) {
         this(index, config, CraftingExecutor::currentPlayerGeneration,
@@ -109,21 +160,34 @@ public final class CraftingExecutor {
             status = ExecutionStatus.BUSY;
             return status;
         }
+        runToken++;
         request = Objects.requireNonNull(next, "request");
         journal.clear();
         sourceIndex = 0;
         callbackPending = false;
+        menuActionPending = false;
+        craftNodes = List.of();
+        craftNodeIndex = 0;
+        tableOpen = false;
         state = State.PREFLIGHT;
         status = ExecutionStatus.CALCULATING;
         return status;
+    }
+
+    /** Replaces an active request and records the distinct supersession reason. */
+    public ExecutionStatus replace(ExecutionRequest next) {
+        if (busy()) cancel(CancelReason.SUPERSEDED);
+        return start(next);
     }
 
     /** Advances at most one state action. */
     public void tick() {
         if (request == null || state == State.IDLE || state == State.COMPLETE
                 || state == State.CANCELLED || state == State.FAILED) return;
+        actionsThisTick = 0;
+        if (menuActionPending) return;
         if (generationChanged()) {
-            cancel(CancelReason.TARGET_CHANGED);
+            cancel(generationCancelReason());
             return;
         }
         if (timeout > 0 && --timeout == 0) {
@@ -146,10 +210,14 @@ public final class CraftingExecutor {
                 case VALIDATE_TABLE -> validateTable();
                 case PLACE_RECIPE -> placeRecipe();
                 case TAKE_OUTPUT -> takeOutput();
+                case WAIT_OUTPUT_SYNC -> waitOutputSync();
+                case CLOSE_TABLE -> closeTable();
                 default -> fail("invalid executor state");
             }
         } catch (RuntimeException exception) {
             fail(exception.getMessage() == null ? "operation failed" : exception.getMessage());
+        } finally {
+            actionsLastTick = actionsThisTick;
         }
     }
 
@@ -160,9 +228,13 @@ public final class CraftingExecutor {
                     sourceIndex < request.sources().size() ? request.sources().get(sourceIndex) : null,
                     0, 0, "cancelled:" + reason.name().toLowerCase()));
         }
+        runToken++;
+        GhostOpen.cancel();
+        closeMenu();
         state = State.CANCELLED;
         status = ExecutionStatus.CANCELLED;
         callbackPending = false;
+        menuActionPending = false;
         return status;
     }
 
@@ -173,6 +245,25 @@ public final class CraftingExecutor {
     }
 
     public List<TransferJournalEntry> transferJournal() { return List.copyOf(journal); }
+
+    public List<StackKey> tableRequiredMaterials() { return tableRequiredMaterials; }
+
+    public int actionsLastTick() { return actionsLastTick; }
+
+    public String menuDiagnostics() {
+        var player = Minecraft.getInstance().player;
+        if (player == null) return "no-player";
+        var menu = player.containerMenu;
+        var slots = new ArrayList<Integer>();
+        for (int slot = 0; slot < Math.min(10, menu.slots.size()); slot++) {
+            slots.add(menu.getSlot(slot).getItem().getCount());
+        }
+        return menu.getClass().getSimpleName() + " slots=" + slots + " carried="
+                + menu.getCarried().getCount() + " recipe="
+                + (activeRecipe == null ? "none" : activeRecipe.gridSlots());
+    }
+
+    public String failureDiagnostics() { return failureDiagnostics; }
 
     public State state() { return state; }
 
@@ -192,28 +283,68 @@ public final class CraftingExecutor {
                 || request.worldGeneration() != worldGeneration.getAsLong();
     }
 
+    private CancelReason generationCancelReason() {
+        var mc = Minecraft.getInstance();
+        if (mc.player == null) return CancelReason.PLAYER_DIED;
+        if (request.worldGeneration() != worldGeneration.getAsLong()) return CancelReason.DIMENSION_CHANGED;
+        return CancelReason.OUT_OF_REACH;
+    }
+
     private void preflight() {
         var plan = request.plan();
         if (!plan.missing().isEmpty()) {
-            status = ExecutionStatus.MISSING;
-            state = State.FAILED;
+            fail(ExecutionStatus.MISSING, "missing materials");
             return;
         }
         var player = Minecraft.getInstance().player;
         if (player == null) {
-            status = ExecutionStatus.FULL;
-            state = State.FAILED;
+            fail(ExecutionStatus.FULL, "player unavailable");
             return;
         }
         var slots = new ArrayList<ItemStack>();
         for (int slot = 0; slot < 36; slot++) slots.add(player.getInventory().getItem(slot).copy());
-        var capacity = InventorySimulation.simulate(
-                InventorySimulation.PlayerInventorySnapshot.of(slots, player.registryAccess()), plan);
-        if (!capacity.safe()) {
-            status = ExecutionStatus.FULL;
-            state = State.FAILED;
+        var snapshot = InventorySimulation.PlayerInventorySnapshot.of(slots, player.registryAccess());
+        var current = new LinkedHashMap<StackKey, Long>();
+        for (var stack : slots) {
+            if (stack.isEmpty()) continue;
+            var key = new StackKey(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
+                    SlotReader.serializeComponents(stack.getComponentsPatch(), player.registryAccess()));
+            current.merge(key, (long) stack.getCount(), Math::addExact);
+        }
+        var needed = new LinkedHashMap<StackKey, Long>();
+        for (var entry : plan.consumedDelta().entrySet()) {
+            needed.put(entry.getKey(), Math.max(0, entry.getValue() - current.getOrDefault(entry.getKey(), 0L)));
+        }
+        var gathered = new LinkedHashMap<StackKey, Long>();
+        var activeSources = new ArrayList<SourceSnapshot>();
+        for (var source : request.sources()) {
+            var left = needed.getOrDefault(source.key(), 0L) - gathered.getOrDefault(source.key(), 0L);
+            if (left <= 0) continue;
+            var take = (int) Math.min(left, source.count());
+            activeSources.add(source.withCount(take));
+            gathered.merge(source.key(), (long) take, Math::addExact);
+        }
+        if (needed.entrySet().stream().anyMatch(entry -> entry.getValue() > gathered.getOrDefault(entry.getKey(), 0L))) {
+            fail(ExecutionStatus.MISSING, "source changed");
             return;
         }
+        var templates = new LinkedHashMap<StackKey, ItemStack>();
+        for (var source : activeSources) templates.putIfAbsent(source.key(), source.template());
+        var capacity = InventorySimulation.simulateAfterGather(snapshot, plan, gathered, templates);
+        if (!capacity.safe()) {
+            fail(ExecutionStatus.FULL, capacity.failureReason());
+            return;
+        }
+        request = new ExecutionRequest(plan, activeSources, request.playerGeneration(),
+                request.worldGeneration(), request.mode());
+        craftNodes = postOrder(plan.root()).stream().filter(node -> node.craftCount() > 0).toList();
+        craftNodeIndex = 0;
+        tableRequiredMaterials = craftNodes.stream()
+                .filter(node -> {
+                    var recipe = recipeFor(node.item());
+                    return recipe != null && recipe.station() == RecipeCatalog.Station.CRAFTING_TABLE;
+                })
+                .map(CraftingPlan.Node::item).distinct().toList();
         status = ExecutionStatus.GATHER;
         state = State.GATHER;
     }
@@ -224,7 +355,7 @@ public final class CraftingExecutor {
                 state = State.COMPLETE;
                 status = ExecutionStatus.COMPLETE;
             } else {
-                state = State.LOCATE_TABLE;
+                advanceCraft();
             }
             return;
         }
@@ -233,6 +364,7 @@ public final class CraftingExecutor {
 
     private void openSource() {
         var source = request.sources().get(sourceIndex);
+        var token = runToken;
         var mc = Minecraft.getInstance();
         if (mc.player == null || !ReachabilityService.shared().check(source.position(), TargetKind.CONTAINER).actionable()) {
             cancel(CancelReason.OUT_OF_REACH);
@@ -240,7 +372,8 @@ public final class CraftingExecutor {
         }
         callbackPending = true;
         timeout = ACTION_TIMEOUT;
-        GhostOpen.openThen(source.position(), () -> {
+        GhostOpen.openThen(source.position(), () -> isCurrent(token), () -> {
+            if (!isCurrent(token)) return;
             var server = mc.getSingleplayerServer();
             if (server == null || mc.player == null) {
                 callbackPending = false;
@@ -248,15 +381,18 @@ public final class CraftingExecutor {
             }
             var uuid = mc.player.getUUID();
             server.execute(() -> {
+                if (!isCurrent(token)) return;
                 var serverPlayer = server.getPlayerList().getPlayer(uuid);
-                var moved = serverPlayer == null ? 0 : source.slot() >= 0
-                        ? RetrieveHandler.retrieveSlot(serverPlayer, source.position(), source.dimension(), source.kind(),
-                        source.slot(), source.key().itemId(), source.key().componentsJson(), source.count(),
-                        config.retrieveDistanceBlocks)
-                        : (RetrieveHandler.retrieve(serverPlayer, source.position(), source.dimension(),
+                var moved = serverPlayer == null ? 0 : RetrieveHandler.retrievePath(serverPlayer,
+                        source.position(), source.dimension(), source.kind(), source.path(),
                         source.key().itemId(), source.key().componentsJson(), source.count(),
-                        config.retrieveDistanceBlocks, source.kind()) ? source.count() : 0);
+                        config.retrieveDistanceBlocks);
+                var observation = moved > 0 && serverPlayer != null
+                        ? RetrieveHandler.observe(serverPlayer, source.position(), source.kind(),
+                        source.contentsKey(), source.accessSources()) : null;
                 mc.execute(() -> {
+                    if (!isCurrent(token)) return;
+                    if (observation != null) index.observe(observation);
                     journal.add(new TransferJournalEntry(source.key(), source, source.count(), moved,
                             moved == source.count() ? "transferred" : "source-changed"));
                     callbackPending = false;
@@ -299,8 +435,7 @@ public final class CraftingExecutor {
                 .filter(pos -> ReachabilityService.shared().check(pos, TargetKind.CRAFTING_TABLE).actionable())
                 .findFirst();
         if (table.isEmpty()) {
-            status = ExecutionStatus.NO_TABLE;
-            state = State.FAILED;
+            fail(ExecutionStatus.NO_TABLE, "no reachable crafting table");
             return;
         }
         tablePosition = table.get().immutable();
@@ -317,6 +452,7 @@ public final class CraftingExecutor {
         }
         var hit = new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(tablePosition),
                 net.minecraft.core.Direction.UP, tablePosition, false);
+        actionsThisTick++;
         mc.gameMode.useItemOn(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND, hit);
         timeout = ACTION_TIMEOUT;
         state = State.WAIT_FOR_TABLE;
@@ -334,52 +470,163 @@ public final class CraftingExecutor {
             return;
         }
         status = ExecutionStatus.CRAFT;
+        tableOpen = true;
+        ingredientIndex = 0;
+        carryingIngredient = false;
+        ingredientPlaced = false;
         state = State.PLACE_RECIPE;
     }
 
     private void placeRecipe() {
         var mc = Minecraft.getInstance();
         var menu = mc.player == null ? null : mc.player.containerMenu;
-        if (!(menu instanceof CraftingMenu crafting)) {
-            fail("crafting table closed");
+        if (!(menu instanceof CraftingMenu) && !(menu instanceof InventoryMenu)) {
+            fail("crafting menu closed");
             return;
         }
-        var recipe = recipeFor(planRoot());
-        if (recipe == null) {
-            fail("recipe unavailable");
+        var options = activeRecipe.ingredientOptions();
+        if (ingredientIndex >= options.size()) {
+            outputWait = 10;
+            state = State.TAKE_OUTPUT;
             return;
         }
-        var options = recipe.ingredientOptions();
-        for (int grid = 0; grid < options.size() && grid < 9; grid++) {
-            var inventorySlot = findInventorySlot(options.get(grid));
+        if (!carryingIngredient) {
+            var inventorySlot = findInventorySlot(options.get(ingredientIndex));
             if (inventorySlot < 0) {
                 fail("ingredient changed");
                 return;
             }
-            click(crafting.containerId, inventorySlot, 0);
-            click(crafting.containerId, 1 + grid, 0);
+            sourceInventorySlot = inventorySlot;
+            click(inventorySlot, 0);
+            carryingIngredient = true;
+        } else if (!ingredientPlaced) {
+            click(1 + activeRecipe.gridSlots().get(ingredientIndex), 1);
+            ingredientPlaced = true;
+        } else {
+            click(sourceInventorySlot, 0);
+            carryingIngredient = false;
+            ingredientPlaced = false;
+            ingredientIndex++;
         }
-        state = State.TAKE_OUTPUT;
     }
 
     private void takeOutput() {
         var player = Minecraft.getInstance().player;
-        if (player == null || !(player.containerMenu instanceof CraftingMenu menu)) {
+        if (player == null || (!(player.containerMenu instanceof CraftingMenu)
+                && !(player.containerMenu instanceof InventoryMenu))) {
             fail("crafting table closed");
             return;
         }
+        var menu = player.containerMenu;
         if (!menu.getSlot(0).hasItem()) {
+            if (outputWait-- > 0) return;
             fail("recipe did not produce output");
             return;
         }
-        click(menu.containerId, 0, 0);
-        state = State.COMPLETE;
-        status = ExecutionStatus.COMPLETE;
+        click(0, 0);
+        craftsRemaining--;
+        if (craftsRemaining > 0) {
+            ingredientIndex = 0;
+            carryingIngredient = false;
+            ingredientPlaced = false;
+            state = State.PLACE_RECIPE;
+            return;
+        }
+        outputWait = 5;
+        state = State.WAIT_OUTPUT_SYNC;
     }
 
-    private void click(int menuId, int slot, int button) {
+    private void waitOutputSync() {
+        if (outputWait-- > 0) return;
+        craftNodeIndex++;
+        if (tableOpen && nextRecipeIsInventoryOrDone()) {
+            state = State.CLOSE_TABLE;
+        } else {
+            advanceCraft();
+        }
+    }
+
+    private void closeTable() {
+        closeMenu();
+        tableOpen = false;
+        advanceCraft();
+    }
+
+    private void advanceCraft() {
+        while (craftNodeIndex < craftNodes.size() && craftNodes.get(craftNodeIndex).craftCount() <= 0) {
+            craftNodeIndex++;
+        }
+        if (craftNodeIndex >= craftNodes.size()) {
+            if (tableOpen) state = State.CLOSE_TABLE;
+            else {
+                state = State.COMPLETE;
+                status = ExecutionStatus.COMPLETE;
+                if (!(Minecraft.getInstance().gui.screen() instanceof CatalogScreen)) {
+                    Minecraft.getInstance().gui.setScreen(new CatalogScreen(index, config));
+                }
+            }
+            return;
+        }
+        var node = craftNodes.get(craftNodeIndex);
+        activeRecipe = recipeFor(node.item());
+        if (activeRecipe == null) {
+            fail("recipe unavailable");
+            return;
+        }
+        craftsRemaining = Math.toIntExact(node.craftCount());
+        ingredientIndex = 0;
+        carryingIngredient = false;
+        ingredientPlaced = false;
+        if (activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+            state = tableOpen ? State.PLACE_RECIPE : State.LOCATE_TABLE;
+        } else if (tableOpen) {
+            state = State.CLOSE_TABLE;
+        } else {
+            status = ExecutionStatus.CRAFT;
+            state = State.PLACE_RECIPE;
+        }
+    }
+
+    private boolean nextRecipeIsInventoryOrDone() {
+        if (craftNodeIndex >= craftNodes.size()) return true;
+        var recipe = recipeFor(craftNodes.get(craftNodeIndex).item());
+        return recipe == null || recipe.station() == RecipeCatalog.Station.INVENTORY;
+    }
+
+    private static List<CraftingPlan.Node> postOrder(CraftingPlan.Node node) {
+        var nodes = new ArrayList<CraftingPlan.Node>();
+        for (var child : node.children()) nodes.addAll(postOrder(child));
+        nodes.add(node);
+        return nodes;
+    }
+
+    private void click(int slot, int button) {
         var mc = Minecraft.getInstance();
-        mc.player.containerMenu.clicked(slot, button, ContainerInput.PICKUP, mc.player);
+        if (mc.player == null || mc.getSingleplayerServer() == null) {
+            fail("menu action unavailable");
+            return;
+        }
+        actionsThisTick++;
+        menuActionPending = true;
+        var token = runToken;
+        var uuid = mc.player.getUUID();
+        var menuId = mc.player.containerMenu.containerId;
+        mc.getSingleplayerServer().execute(() -> {
+            var serverPlayer = mc.getSingleplayerServer().getPlayerList().getPlayer(uuid);
+            if (serverPlayer != null && isCurrent(token) && serverPlayer.containerMenu.containerId == menuId) {
+                serverPlayer.containerMenu.clicked(slot, button, ContainerInput.PICKUP, serverPlayer);
+                if (slot == 0 && !serverPlayer.containerMenu.getCarried().isEmpty()) {
+                    var carried = serverPlayer.containerMenu.getCarried().copy();
+                    serverPlayer.getInventory().add(carried);
+                    serverPlayer.containerMenu.setCarried(carried);
+                }
+                serverPlayer.containerMenu.broadcastChanges();
+                serverPlayer.containerMenu.broadcastFullState();
+            }
+            mc.execute(() -> {
+                if (runToken == token) menuActionPending = false;
+            });
+        });
     }
 
     private RecipeCatalog.RecipeDefinition recipeFor(StackKey output) {
@@ -393,20 +640,58 @@ public final class CraftingExecutor {
 
     private int findInventorySlot(List<StackKey> choices) {
         var player = Minecraft.getInstance().player;
-        if (player == null) return -1;
+        var inventory = player == null ? null : player.getInventory();
+        var server = Minecraft.getInstance().getSingleplayerServer();
+        if (server != null && player != null) {
+            var serverPlayer = server.getPlayerList().getPlayer(player.getUUID());
+            if (serverPlayer != null) inventory = serverPlayer.getInventory();
+        }
+        if (inventory == null) return -1;
         for (int slot = 0; slot < 36; slot++) {
-            var stack = player.getInventory().getItem(slot);
+            var stack = inventory.getItem(slot);
             if (stack.isEmpty()) continue;
             var key = new StackKey(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
                     SlotReader.serializeComponents(stack.getComponentsPatch(), player.registryAccess()));
-            if (choices.contains(key)) return slot < 9 ? 36 + slot : slot;
+            if (choices.contains(key)) {
+                var menu = Minecraft.getInstance().player == null
+                        ? null : Minecraft.getInstance().player.containerMenu;
+                var playerInventoryOffset = menu instanceof net.minecraft.world.inventory.CraftingMenu ? 10 : 9;
+                return slot < 9 ? playerInventoryOffset + 27 + slot : playerInventoryOffset + slot - 9;
+            }
         }
         return -1;
     }
 
     private void fail(String note) {
+        fail(ExecutionStatus.FAILED, note);
+    }
+
+    private void fail(ExecutionStatus failureStatus, String note) {
+        failureDiagnostics = menuDiagnostics();
+        runToken++;
+        GhostOpen.cancel();
+        closeMenu();
         state = State.FAILED;
-        status = ExecutionStatus.FAILED;
+        status = failureStatus;
+        menuActionPending = false;
         if (request != null) journal.add(new TransferJournalEntry(request.plan().root().item(), null, 0, 0, note));
+    }
+
+    private boolean isCurrent(long token) {
+        return runToken == token && busy();
+    }
+
+    private void closeMenu() {
+        var mc = Minecraft.getInstance();
+        var player = mc.player;
+        if (player == null || player.containerMenu == player.inventoryMenu) return;
+        var connection = mc.getConnection();
+        if (connection != null) {
+            actionsThisTick++;
+            connection.send(new net.minecraft.network.protocol.game.ServerboundContainerClosePacket(
+                    player.containerMenu.containerId));
+        }
+        player.containerMenu = player.inventoryMenu;
+        if (!(mc.gui.screen() instanceof dev.smpb.findmyitems.gui.CatalogScreen)) mc.gui.setScreen(null);
     }
 }

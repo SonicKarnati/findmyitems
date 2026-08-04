@@ -282,11 +282,19 @@ public final class FindMyItemsGameTest {
                 .orElseThrow()
                 .stack();
 
-        helper.assertTrue(goldSnapshot.provenance().slots().equals(List.of(0, 10_000, 10_001)),
-                "nested gold path should include every holder slot: "
-                        + goldSnapshot.provenance().slots());
+         helper.assertTrue(goldSnapshot.provenance().slots().equals(List.of(0, 0, 0)),
+                 "nested gold path should include every holder slot: "
+                         + goldSnapshot.provenance().slots());
         helper.assertTrue(goldSnapshot.provenance().holderSlot() == 0,
                 "nested gold should retain the outermost holder slot");
+        var index = new InMemoryContainerIndex();
+        var absolute = helper.absolutePos(CHEST);
+        var sourceKey = SourceKey.storage(dimension(helper), ContainerKind.CHEST,
+                List.of(new BlockPosition(absolute.getX(), absolute.getY(), absolute.getZ())));
+        index.observe(new ContainerObservation(sourceKey, List.of(sourceKey), slots, Instant.now()));
+        var location = index.search("gold_ingot").getFirst().sources().getFirst().locations().getFirst();
+        helper.assertTrue(location.stack().provenance().slots().equals(List.of(0, 0, 0)),
+                "index source locations must retain the exact nested physical path");
         helper.succeed();
     }
 

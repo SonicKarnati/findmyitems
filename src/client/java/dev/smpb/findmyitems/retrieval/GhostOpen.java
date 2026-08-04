@@ -12,6 +12,9 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
+
 /**
  * Runs a catalog action as if the player had walked up and opened the container: a real
  * right-click packet goes to the server, so the lid swings, the sound plays and the block's
@@ -35,6 +38,7 @@ public final class GhostOpen {
 
     private static Phase phase = Phase.IDLE;
     private static Runnable action;
+    private static BooleanSupplier valid;
     private static Screen returnTo;
     private static int ticks;
 
@@ -50,16 +54,22 @@ public final class GhostOpen {
      * Falls straight through to {@code action} when the container cannot be opened for real.
      */
     public static void openThen(BlockPos pos, Runnable action) {
+        openThen(pos, () -> true, action);
+    }
+
+    /** Opens a container only while the owning operation is still current. */
+    public static void openThen(BlockPos pos, BooleanSupplier valid, Runnable action) {
         var mc = Minecraft.getInstance();
         var player = mc.player;
 
         // One at a time. And never while sneaking: a sneaking right-click on a chest places the
         // held block instead of opening it, which would be a genuinely destructive surprise.
-        if (phase != Phase.IDLE || !canOpen(pos)) {
+        if (phase != Phase.IDLE || !canOpen(pos) || !valid.getAsBoolean()) {
             return;
         }
 
         GhostOpen.action = action;
+        GhostOpen.valid = Objects.requireNonNull(valid, "valid");
         returnTo = mc.gui.screen();
         phase = Phase.WAITING;
         ticks = OPEN_TIMEOUT_TICKS;
@@ -75,8 +85,16 @@ public final class GhostOpen {
                 && ReachabilityService.shared().check(pos, TargetKind.CONTAINER).actionable();
     }
 
+    /** Cancels the pending open/action and closes any temporary menu. */
+    public static void cancel() {
+        if (phase == Phase.IDLE) return;
+        close();
+        reset();
+    }
+
     private static void onScreenOpened(Minecraft mc, Screen screen) {
-        if (phase != Phase.WAITING || !(screen instanceof AbstractContainerScreen<?>)) return;
+        if (phase != Phase.WAITING || valid == null || !valid.getAsBoolean()
+                || !(screen instanceof AbstractContainerScreen<?>)) return;
 
         phase = Phase.HOLDING;
         ticks = HOLD_TICKS;
@@ -87,15 +105,20 @@ public final class GhostOpen {
 
     private static void tick() {
         if (phase == Phase.IDLE || --ticks > 0) return;
+        if (valid != null && !valid.getAsBoolean()) {
+            close();
+            reset();
+            return;
+        }
 
         switch (phase) {
             case WAITING -> {
                 var pending = action;
                 reset();
-                pending.run();
+                if (pending != null) pending.run();
             }
             case HOLDING -> {
-                action.run();
+                if (action != null) action.run();
                 // The action does its work on the server thread; give it a tick to land before the
                 // close packet queues up behind it.
                 phase = Phase.CLOSING;
@@ -127,6 +150,7 @@ public final class GhostOpen {
     private static void reset() {
         phase = Phase.IDLE;
         action = null;
+        valid = null;
         returnTo = null;
     }
 }

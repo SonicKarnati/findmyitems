@@ -184,7 +184,10 @@ public final class InMemoryContainerIndex implements ContainerIndex {
                     ? List.of(container.contentsKey())
                     : container.accessSources();
             for (var source : access) {
-                sources.add(new SourceResult(source, container.contentsKey(), count, container.observedAt()));
+                var locations = container.slots().stream()
+                        .filter(slot -> slot.stack().key().equals(example.key()))
+                        .toList();
+                sources.add(new SourceResult(source, container.contentsKey(), count, container.observedAt(), locations));
             }
         }
 

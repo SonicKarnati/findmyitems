@@ -68,15 +68,15 @@ final class ObservationBuilderTest {
     @Test
     void nestedContentsRetainOuterHolderProvenance() {
         var provenance = new dev.smpb.findmyitems.model.StackSnapshot.Provenance(
-                List.of(0, 10_000), 0);
-        assertEquals(List.of(0, 10_000), provenance.slots());
+                List.of(0, 0), 0);
+        assertEquals(List.of(0, 0), provenance.slots());
         assertEquals(0, provenance.holderSlot());
     }
 
     @Test
     void deeplyNestedContentsKeepTheFirstHolder() {
         var provenance = new dev.smpb.findmyitems.model.StackSnapshot.Provenance(
-                List.of(0, 10_000, 10_001), 0);
+                List.of(0, 0, 0), 0);
         assertEquals(0, provenance.holderSlot());
         assertEquals(3, provenance.slots().size());
     }

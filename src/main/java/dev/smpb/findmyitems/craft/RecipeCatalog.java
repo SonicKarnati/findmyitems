@@ -37,12 +37,18 @@ public final class RecipeCatalog {
 
     public record RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions,
                                    Station station, int width, int height,
+                                   List<Integer> gridSlots,
                                    Map<StackKey, Long> remainders,
                                    Map<StackKey, Map<StackKey, Long>> alternativeRemainders) {
         public RecipeDefinition {
             if (outputBatch <= 0) throw new IllegalArgumentException("outputBatch must be positive");
             if (width <= 0 || height <= 0) throw new IllegalArgumentException("recipe dimensions must be positive");
             ingredientOptions = ingredientOptions.stream().map(List::copyOf).toList();
+            gridSlots = List.copyOf(gridSlots);
+            if (gridSlots.size() != ingredientOptions.size()
+                    || gridSlots.stream().anyMatch(slot -> slot < 0)) {
+                throw new IllegalArgumentException("grid slots must match ingredients");
+            }
             if (ingredientOptions.stream().anyMatch(List::isEmpty)) {
                 throw new IllegalArgumentException("ingredient alternatives must not be empty");
             }
@@ -57,6 +63,14 @@ public final class RecipeCatalog {
                     .anyMatch(value -> value == null || value < 0)) {
                 throw new IllegalArgumentException("alternative remainder quantities must be non-negative");
             }
+        }
+
+        public RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions,
+                                Station station, int width, int height, Map<StackKey, Long> remainders,
+                                Map<StackKey, Map<StackKey, Long>> alternativeRemainders) {
+            this(output, outputBatch, ingredientOptions, station, width, height,
+                    java.util.stream.IntStream.range(0, ingredientOptions.size()).boxed().toList(),
+                    remainders, alternativeRemainders);
         }
 
         public RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions) {
@@ -119,19 +133,33 @@ public final class RecipeCatalog {
                         width = 3;
                         height = 3;
                     }
-                    var station = width <= 2 && height <= 2 ? Station.INVENTORY : Station.CRAFTING_TABLE;
-                    var slots = new ArrayList<List<StackKey>>();
-                    for (Ingredient ingredient : placement.ingredients()) {
-                        var choices = new ArrayList<StackKey>();
+                     var station = width <= 2 && height <= 2 ? Station.INVENTORY : Station.CRAFTING_TABLE;
+                     var gridIngredients = new ArrayList<Ingredient>();
+                     if (recipe instanceof ShapedRecipe shaped) {
+                         for (var optional : shaped.getIngredients()) {
+                             gridIngredients.add(optional.orElse(null));
+                         }
+                     } else {
+                         gridIngredients.addAll(placement.ingredients());
+                     }
+                      var slots = new ArrayList<List<StackKey>>();
+                      var gridSlots = new ArrayList<Integer>();
+                      for (int gridSlot = 0; gridSlot < gridIngredients.size(); gridSlot++) {
+                          var ingredient = gridIngredients.get(gridSlot);
+                          if (ingredient == null) continue;
+                          var choices = new ArrayList<StackKey>();
                         for (var holderItem : (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) ingredient.items()::iterator) {
                             var ingredientStack = new net.minecraft.world.item.ItemStack(holderItem.value());
                             choices.add(stackKey(ingredientStack, level));
                         }
-                        if (!choices.isEmpty()) slots.add(choices);
-                    }
-                    var alternativeRemainders = alternativeRemainders(recipe, placement, width, height, level);
-                    found.add(new RecipeDefinition(output, result.getCount(), slots, station, width, height,
-                            Map.of(), alternativeRemainders));
+                         if (!choices.isEmpty()) {
+                             slots.add(choices);
+                             gridSlots.add(gridSlot);
+                         }
+                     }
+                     var alternativeRemainders = alternativeRemainders(recipe, gridIngredients, width, height, level);
+                     found.add(new RecipeDefinition(output, result.getCount(), slots, station, width, height,
+                             gridSlots, Map.of(), alternativeRemainders));
                 }
             }
         }
@@ -151,19 +179,20 @@ public final class RecipeCatalog {
     }
 
     private static Map<StackKey, Map<StackKey, Long>> alternativeRemainders(
-            net.minecraft.world.item.crafting.Recipe<?> recipe, net.minecraft.world.item.crafting.PlacementInfo placement,
+            net.minecraft.world.item.crafting.Recipe<?> recipe, List<Ingredient> slots,
             int width, int height, Level level) {
         if (!(recipe instanceof CraftingRecipe craftingRecipe)) return Map.of();
         var sample = new ArrayList<net.minecraft.world.item.ItemStack>();
         for (var i = 0; i < width * height; i++) sample.add(net.minecraft.world.item.ItemStack.EMPTY);
-        var slots = placement.ingredients();
         for (var i = 0; i < slots.size() && i < sample.size(); i++) {
+            if (slots.get(i) == null) continue;
             var first = (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) slots.get(i).items()::iterator;
             var iterator = first.iterator();
             if (iterator.hasNext()) sample.set(i, new net.minecraft.world.item.ItemStack(iterator.next().value()));
         }
         var result = new LinkedHashMap<StackKey, Map<StackKey, Long>>();
         for (var slot = 0; slot < slots.size() && slot < sample.size(); slot++) {
+            if (slots.get(slot) == null) continue;
             for (var holderItem : (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) slots.get(slot).items()::iterator) {
                 var input = new ArrayList<>(sample);
                 input.set(slot, new net.minecraft.world.item.ItemStack(holderItem.value()));

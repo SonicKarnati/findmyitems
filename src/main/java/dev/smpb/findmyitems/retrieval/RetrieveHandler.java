@@ -2,6 +2,8 @@ package dev.smpb.findmyitems.retrieval;
 
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.model.ContainerKind;
+import dev.smpb.findmyitems.model.ContainerObservation;
+import dev.smpb.findmyitems.model.SourceKey;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -14,6 +16,8 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EnderChestBlock;
 
 import java.util.ArrayList;
+import java.util.List;
+import java.time.Instant;
 
 public final class RetrieveHandler {
     /** Matches {@link dev.smpb.findmyitems.observation.SlotReader}'s indexing depth. */
@@ -98,22 +102,62 @@ public final class RetrieveHandler {
     public static int retrieveSlot(ServerPlayer player, BlockPos pos, String dimensionId,
                                    ContainerKind expectedContainer, int slot, String itemId,
                                    String componentsJson, int amount, int maxReachBlocks) {
+        return retrievePath(player, pos, dimensionId, expectedContainer, List.of(slot), itemId,
+                componentsJson, amount, maxReachBlocks);
+    }
+
+    /** Retrieves from one exact physical path, including nested container slots. */
+    public static int retrievePath(ServerPlayer player, BlockPos pos, String dimensionId,
+                                   ContainerKind expectedContainer, List<Integer> path, String itemId,
+                                   String componentsJson, int amount, int maxReachBlocks) {
         if (amount <= 0 || !inReach(player, pos, maxReachBlocks)) return 0;
+        if (path == null || path.isEmpty() || path.stream().anyMatch(slot -> slot < 0)) return 0;
         var facts = Reachability.check(player.level(), player, pos, dimensionId,
                 TargetKind.CONTAINER, expectedContainer, maxReachBlocks);
         if (!facts.actionable()) return 0;
         var container = containerAt(player, pos, expectedContainer);
-        if (container == null || slot < 0 || slot >= container.getContainerSize()) return 0;
-        var stack = container.getItem(slot);
-        if (stack.isEmpty() || !matches(player, stack, itemId, componentsJson)) return 0;
+        if (container == null || path.getFirst() >= container.getContainerSize()) return 0;
+        var root = container.getItem(path.getFirst());
+        var moved = path.size() == 1
+                ? takeExact(player, root, itemId, componentsJson, amount)
+                : takeNested(player, root, path, 1, itemId, componentsJson, amount);
+        if (moved > 0) container.setChanged();
+        return moved;
+    }
 
-        var toTake = Math.min(amount, stack.getCount());
-        var leftover = give(player, stack.copyWithCount(toTake));
-        var moved = toTake - leftover;
+    /** Reads the authoritative post-transfer contents for client-index reconciliation. */
+    public static ContainerObservation observe(ServerPlayer player, BlockPos pos, ContainerKind kind,
+                                               SourceKey contentsKey, List<SourceKey> accessSources) {
+        var container = containerAt(player, pos, kind);
+        if (container == null) return null;
+        return new ContainerObservation(contentsKey, accessSources,
+                SlotReader.readContainerSlots(container, player), Instant.now());
+    }
+
+    private static int takeNested(ServerPlayer player, ItemStack holder, List<Integer> path, int depth,
+                                  String itemId, String componentsJson, int amount) {
+        var contents = holder.get(DataComponents.CONTAINER);
+        if (contents == null || path.get(depth) >= contents.allItemsCopyStream().count()) return 0;
+        var items = new ArrayList<>(contents.allItemsCopyStream().toList());
+        var childIndex = path.get(depth);
+        if (childIndex >= items.size()) return 0;
+        var child = items.get(childIndex);
+        var moved = depth == path.size() - 1
+                ? takeExact(player, child, itemId, componentsJson, amount)
+                : takeNested(player, child, path, depth + 1, itemId, componentsJson, amount);
         if (moved > 0) {
-            stack.shrink(moved);
-            container.setChanged();
+            items.set(childIndex, child);
+            holder.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(items));
         }
+        return moved;
+    }
+
+    private static int takeExact(ServerPlayer player, ItemStack stack, String itemId,
+                                 String componentsJson, int amount) {
+        if (stack.isEmpty() || !matches(player, stack, itemId, componentsJson)) return 0;
+        var toTake = Math.min(amount, stack.getCount());
+        var moved = toTake - give(player, stack.copyWithCount(toTake));
+        if (moved > 0) stack.shrink(moved);
         return moved;
     }
 
