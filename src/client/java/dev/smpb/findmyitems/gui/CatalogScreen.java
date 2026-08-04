@@ -7,6 +7,7 @@ import dev.smpb.findmyitems.craft.CraftingPlanner;
 import dev.smpb.findmyitems.craft.DisplayPlan;
 import dev.smpb.findmyitems.craft.PlanningInventory;
 import dev.smpb.findmyitems.craft.RecipeCatalog;
+import dev.smpb.findmyitems.FindMyItemsClient;
 import dev.smpb.findmyitems.config.ModConfig;
 import dev.smpb.findmyitems.index.ContainerIndex;
 import dev.smpb.findmyitems.index.IndexedContainer;
@@ -18,6 +19,7 @@ import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
+import dev.smpb.findmyitems.retrieval.CraftingExecutor;
 import dev.smpb.findmyitems.retrieval.ReachabilityService;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
 import dev.smpb.findmyitems.retrieval.TargetKind;
@@ -116,6 +118,8 @@ public final class CatalogScreen extends Screen {
     private RowList rowList;
     private final Map<View, Button> tabs = new HashMap<>();
     private Button layoutButton;
+    private Button gatherButton;
+    private Button craftButton;
 
     private String currentQuery = "";
     private View view = View.ITEMS;
@@ -129,6 +133,7 @@ public final class CatalogScreen extends Screen {
     private long appliedPlanGeneration = -1;
     private int planRequestCount;
     private List<DisplayPlan.Row> plannedRows;
+    private CraftingPlan plannedPlan;
     private long seenRecipeGeneration = -1;
     private String status = "";
     private ItemResult hoveredItem;
@@ -197,6 +202,15 @@ public final class CatalogScreen extends Screen {
                 .build();
         addRenderableWidget(layoutButton);
 
+        gatherButton = Button.builder(Component.translatable("screen.findmyitems.craft.gather_materials"),
+                        ignored -> startExecution(CraftingExecutor.Mode.GATHER_ONLY))
+                .bounds(left, height - FOOTER_HEIGHT, 108, WIDGET_HEIGHT).build();
+        craftButton = Button.builder(Component.translatable("screen.findmyitems.craft.gather_and_craft"),
+                        ignored -> startExecution(CraftingExecutor.Mode.GATHER_AND_CRAFT))
+                .bounds(left + 112, height - FOOTER_HEIGHT, 124, WIDGET_HEIGHT).build();
+        addRenderableWidget(gatherButton);
+        addRenderableWidget(craftButton);
+
         var searchWidth = total - AMOUNT_WIDTH - GAP;
         searchField = new EditBox(font, left, SEARCH_Y, searchWidth, WIDGET_HEIGHT,
                 Component.translatable("screen.findmyitems.search"));
@@ -251,6 +265,10 @@ public final class CatalogScreen extends Screen {
         layoutButton.active = view != View.CRAFTING;
         // Amount drives how many to take (items) or how many to craft (crafting), but nothing in containers.
         amountField.visible = view != View.CONTAINERS;
+        gatherButton.visible = view == View.CRAFTING && selectedOutput != null && plannedPlan != null;
+        craftButton.visible = gatherButton.visible;
+        gatherButton.active = !FindMyItemsClient.executor().busy();
+        craftButton.active = !FindMyItemsClient.executor().busy();
         searchField.setHint(Component.translatable(switch (view) {
             case ITEMS -> "screen.findmyitems.hint.items";
             case CONTAINERS -> "screen.findmyitems.hint.containers";
@@ -689,6 +707,7 @@ public final class CatalogScreen extends Screen {
                             || revision != index.revision() || requestedAmount != amount
                             || selectedOutput != identity || currentCatalog() != catalog) return;
                     plannedRows = DisplayPlan.flatten(plan);
+                    plannedPlan = plan;
                     appliedPlanGeneration = requestGeneration;
                     status = "";
                     updateResults();
@@ -696,10 +715,49 @@ public final class CatalogScreen extends Screen {
     }
 
     private void invalidateQuery() {
+        if (FindMyItemsClient.executor().busy()) {
+            FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.QUERY_CHANGED);
+        }
         searchGeneration++;
         planGeneration++;
         plannedRows = null;
+        plannedPlan = null;
         hoveredOutput = null;
+    }
+
+    private void startExecution(CraftingExecutor.Mode mode) {
+        if (plannedPlan == null || selectedOutput == null) return;
+        var sources = new ArrayList<CraftingExecutor.SourceSnapshot>();
+        for (var entry : plannedPlan.consumedDelta().entrySet()) {
+            var result = index.search(entry.getKey().itemId()).stream()
+                    .filter(item -> item.key().equals(entry.getKey())).findFirst().orElse(null);
+            if (result == null) continue;
+            var remaining = entry.getValue();
+            for (var source : result.sources()) {
+                if (source.source().positions().isEmpty()) continue;
+                var count = (int) Math.min(remaining, source.count());
+                if (count <= 0) continue;
+                var positions = source.source().positions().stream()
+                        .map(p -> new BlockPos(p.x(), p.y(), p.z())).toList();
+                sources.add(new CraftingExecutor.SourceSnapshot(entry.getKey(), source.source().dimension(),
+                        source.source().kind(), positions, -1, count));
+                remaining -= count;
+                if (remaining == 0) break;
+            }
+        }
+        var executor = FindMyItemsClient.executor();
+        executor.start(new CraftingExecutor.ExecutionRequest(plannedPlan, sources,
+                CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(), mode));
+        status = executor.status().statusKey();
+        refreshChrome();
+    }
+
+    @Override
+    public void onClose() {
+        if (FindMyItemsClient.executor().busy()) {
+            FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SCREEN_CLOSED);
+        }
+        super.onClose();
     }
 
     private boolean rootMatches(StackKey key, String needle) {

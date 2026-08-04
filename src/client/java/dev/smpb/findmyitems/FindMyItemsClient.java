@@ -9,6 +9,7 @@ import dev.smpb.findmyitems.index.InMemoryContainerIndex;
 import dev.smpb.findmyitems.observation.ObservationCollector;
 import dev.smpb.findmyitems.observation.PositionCache;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
+import dev.smpb.findmyitems.retrieval.CraftingExecutor;
 import dev.smpb.findmyitems.search.InventorySearchController;
 import dev.smpb.findmyitems.store.JsonWorldStore;
 import dev.smpb.findmyitems.store.WorldKey;
@@ -32,6 +33,7 @@ import java.util.List;
 public final class FindMyItemsClient implements ClientModInitializer {
     private static ContainerIndex sharedIndex;
     private static ModConfig sharedConfig;
+    private static CraftingExecutor sharedExecutor;
     private ContainerIndex index;
     private KeyMapping openCatalogKey;
     private JsonWorldStore store;
@@ -57,6 +59,13 @@ public final class FindMyItemsClient implements ClientModInitializer {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("config").resolve("findmyitems.json");
     }
 
+    public static CraftingExecutor executor() {
+        if (sharedExecutor == null) {
+            sharedExecutor = new CraftingExecutor(sharedIndex, config());
+        }
+        return sharedExecutor;
+    }
+
     @Override
     public void onInitializeClient() {
         index = new InMemoryContainerIndex();
@@ -66,6 +75,7 @@ public final class FindMyItemsClient implements ClientModInitializer {
         sharedConfig = ModConfig.load(configPath());
 
         new ObservationCollector(index, sharedConfig);
+        sharedExecutor = new CraftingExecutor(index, sharedConfig);
         new InventorySearchController();
         ChestHighlighter.init();
         GhostOpen.init();
@@ -141,6 +151,7 @@ public final class FindMyItemsClient implements ClientModInitializer {
     }
 
     private void onTick(Minecraft client) {
+        if (sharedExecutor != null) sharedExecutor.tick();
         if (!openCatalogKey.consumeClick()) return;
 
         if (!activeWorld()) {

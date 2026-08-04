@@ -290,6 +290,38 @@ public final class RetrieveEdgeCaseGameTest {
         helper.succeed();
     }
 
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void exactSlotTransferStopsWhenTheIndexedSourceChanges(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 12));
+        var player = playerNextToChest(helper);
+        chest.setItem(0, new ItemStack(Items.OAK_LOG, 12));
+
+        var moved = RetrieveHandler.retrieveSlot(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, 0, "minecraft:diamond", "{}", 12, 0);
+
+        helper.assertTrue(moved == 0, "a changed source slot must not satisfy the old plan");
+        helper.assertTrue(player.getInventory().countItem(Items.DIAMOND) == 0,
+                "stale source validation must not fabricate diamonds");
+        helper.assertTrue(chest.getItem(0).is(Items.OAK_LOG), "the replacement stack must stay put");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void exactSlotTransferConservesOverflowInCreative(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(Items.DIAMOND, 12));
+        var player = playerNextToChest(helper);
+        player.getAbilities().instabuild = true;
+        fillInventory(player);
+
+        var moved = RetrieveHandler.retrieveSlot(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, 0, "minecraft:diamond", "{}", 12, 0);
+
+        helper.assertTrue(moved == 0, "creative inventory.add must not claim to accept overflow");
+        helper.assertTrue(chest.getItem(0).getCount() == 12,
+                "creative overflow must remain in the source chest");
+        helper.succeed();
+    }
+
     /**
      * A configured reach opens a chest your arm cannot, and only when it is configured.
      *

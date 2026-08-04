@@ -92,6 +92,32 @@ public final class RetrieveHandler {
     }
 
     /**
+     * Retrieves only from the slot captured by a plan. The slot is re-read immediately before the
+     * action, so an indexed source that was replaced in the meantime cannot satisfy the request.
+     */
+    public static int retrieveSlot(ServerPlayer player, BlockPos pos, String dimensionId,
+                                   ContainerKind expectedContainer, int slot, String itemId,
+                                   String componentsJson, int amount, int maxReachBlocks) {
+        if (amount <= 0 || !inReach(player, pos, maxReachBlocks)) return 0;
+        var facts = Reachability.check(player.level(), player, pos, dimensionId,
+                TargetKind.CONTAINER, expectedContainer, maxReachBlocks);
+        if (!facts.actionable()) return 0;
+        var container = containerAt(player, pos, expectedContainer);
+        if (container == null || slot < 0 || slot >= container.getContainerSize()) return 0;
+        var stack = container.getItem(slot);
+        if (stack.isEmpty() || !matches(player, stack, itemId, componentsJson)) return 0;
+
+        var toTake = Math.min(amount, stack.getCount());
+        var leftover = give(player, stack.copyWithCount(toTake));
+        var moved = toTake - leftover;
+        if (moved > 0) {
+            stack.shrink(moved);
+            container.setChanged();
+        }
+        return moved;
+    }
+
+    /**
      * Moves up to {@code amount} of an item from the player's inventory into the container.
      *
      * <p>Deliberately narrow: the container must already hold that exact item, components and all.

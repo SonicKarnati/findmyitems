@@ -4,8 +4,14 @@ import dev.smpb.findmyitems.FindMyItemsClient;
 import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
+import dev.smpb.findmyitems.craft.CraftingPlan;
+import dev.smpb.findmyitems.craft.PlanScore;
+import dev.smpb.findmyitems.craft.PlanningInventory;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
+import dev.smpb.findmyitems.model.StackKey;
+import dev.smpb.findmyitems.retrieval.CraftingExecutor;
+import dev.smpb.findmyitems.retrieval.ExecutionStatus;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
 import dev.smpb.findmyitems.search.InventorySearchController;
 import net.minecraft.client.gui.components.EditBox;
@@ -135,6 +141,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             assertGhostOpenRefusesBlockedChest(context, server);
             highlightTheChest(context);
             context.takeScreenshot("chest-highlighted");
+            assertExecutorBusyGuard(context);
         }
     }
 
@@ -143,6 +150,25 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.getInput().pressKey(digit);
         context.getInput().releaseControl();
         context.waitTicks(5);
+    }
+
+    private static void assertExecutorBusyGuard(ClientGameTestContext context) {
+        var result = context.computeOnClient(mc -> {
+            var key = new StackKey("minecraft:diamond_pickaxe", "{}");
+            var plan = CraftingPlan.root(key, 1, PlanningInventory.empty(), new PlanScore(0, 0, 0, 0, 0));
+            var request = new CraftingExecutor.ExecutionRequest(plan, List.of(), 0, 0,
+                    CraftingExecutor.Mode.GATHER_ONLY);
+            var executor = FindMyItemsClient.executor();
+            var first = executor.start(request);
+            var second = executor.start(request);
+            var cancelled = executor.cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED);
+            return new ExecutionStatus[] {first, second, cancelled};
+        });
+        if (result[0] != ExecutionStatus.CALCULATING || result[1] != ExecutionStatus.BUSY
+                || result[2] != ExecutionStatus.CANCELLED) {
+            throw new AssertionError("executor must reject overlapping requests and record cancellation: "
+                    + java.util.Arrays.toString(result));
+        }
     }
 
     /** With an empty box the crafting view lists recipe roots, not expanded plans. */
