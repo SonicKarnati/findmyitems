@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -736,6 +737,11 @@ public final class CatalogScreen extends Screen {
         if (plannedPlan == null || selectedOutput == null) return;
         var sources = new ArrayList<CraftingExecutor.SourceSnapshot>();
         for (var entry : plannedPlan.consumedDelta().entrySet()) {
+            var template = buildStack(entry.getKey());
+            if (template.isEmpty()) {
+                status = Component.translatable("screen.findmyitems.craft.unavailable").getString();
+                return;
+            }
             var result = index.search(entry.getKey().itemId()).stream()
                     .filter(item -> item.key().equals(entry.getKey())).findFirst().orElse(null);
             if (result == null) continue;
@@ -752,7 +758,7 @@ public final class CatalogScreen extends Screen {
                             source.source().kind(), positions, location.stack().provenance().slots(), count,
                             source.contentsKey(), result.sources().stream()
                                     .filter(other -> other.contentsKey().equals(source.contentsKey()))
-                                    .map(SourceResult::source).distinct().toList(), buildStack(entry.getKey())));
+                                    .map(SourceResult::source).distinct().toList(), template));
                     remaining -= count;
                     if (remaining == 0) break;
                 }
@@ -760,10 +766,28 @@ public final class CatalogScreen extends Screen {
             }
         }
         var executor = FindMyItemsClient.executor();
-        executor.start(new CraftingExecutor.ExecutionRequest(plannedPlan, sources,
-                CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(), mode));
-        status = executor.status().statusKey();
+        executor.start(new CraftingExecutor.ExecutionRequest(plannedPlan, sources, selectedOutput.key(),
+                selectedOutput.recipeGeneration(), CraftingExecutor.currentPlayerGeneration(),
+                CraftingExecutor.currentWorldGeneration(), mode));
+        status = mode == CraftingExecutor.Mode.GATHER_ONLY
+                ? gatherOnlyStatus(plannedPlan.root(), currentCatalog())
+                : executor.status().statusKey();
         refreshChrome();
+    }
+
+    private String gatherOnlyStatus(CraftingPlan.Node node, RecipeCatalog catalog) {
+        var tableItems = new LinkedHashSet<String>();
+        collectTableRequirements(node, catalog, tableItems);
+        if (tableItems.isEmpty()) return Component.translatable("screen.findmyitems.craft.gather_materials").getString();
+        return "Gathering materials; crafting table required for: " + String.join(", ", tableItems);
+    }
+
+    private void collectTableRequirements(CraftingPlan.Node node, RecipeCatalog catalog, Set<String> tableItems) {
+        var recipe = catalog == null ? null : catalog.recipesFor(node.item()).stream().findFirst().orElse(null);
+        if (node.craftCount() > 0 && recipe != null && recipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+            tableItems.add(buildStack(node.item()).getHoverName().getString());
+        }
+        for (var child : node.children()) collectTableRequirements(child, catalog, tableItems);
     }
 
     @Override
@@ -1075,15 +1099,16 @@ public final class CatalogScreen extends Screen {
 
         var stack = new ItemStack(itemHolder.get());
         if (!key.componentsJson().equals("{}")) {
+            if (key.componentsJson().startsWith("!")) return ItemStack.EMPTY;
             try {
                 var json = JsonParser.parseString(key.componentsJson());
                 var level = Minecraft.getInstance().level;
-                var ops = level == null
-                        ? JsonOps.INSTANCE
-                        : level.registryAccess().createSerializationContext(JsonOps.INSTANCE);
+                if (level == null) return ItemStack.EMPTY;
+                var ops = level.registryAccess().createSerializationContext(JsonOps.INSTANCE);
                 var pair = DataComponentPatch.CODEC.decode(ops, json).getOrThrow();
                 stack.applyComponents(pair.getFirst());
             } catch (Exception ignored) {
+                return ItemStack.EMPTY;
             }
         }
         return stack;

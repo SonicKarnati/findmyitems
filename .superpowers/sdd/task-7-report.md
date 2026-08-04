@@ -10,8 +10,10 @@ Implemented the tick-driven gather/craft execution phase.
 - Added physical nested-container provenance through `SourceResult.locations`, with exact path validation and authoritative post-transfer index reconciliation.
 - Added inventory capacity preflight, reachable-table checks, inventory-menu crafting, and gather-only fallback.
 - Added shaped-recipe grid coordinates, server-authoritative menu actions, cursor conservation, and output synchronization.
+- Added target identity/generation validation, explicit gather-only table requirements, safe unavailable handling for degraded component keys, and one-action-per-tick integration assertions.
 - Added catalog gather/gather-and-craft controls and screen/query cancellation hooks.
 - Added planner, server conservation, stale-source, creative-overflow, and client busy/cancellation tests.
+- Added client integration coverage for target changes, output conservation, cursor state, and actual executor action bounds.
 
 ## Verification
 

@@ -170,12 +170,17 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             executor.tick();
             var actions = executor.actionsLastTick();
             var replaced = executor.replace(request);
+            var mismatch = new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    new StackKey("minecraft:stick", "{}"), 1, 0, 0, CraftingExecutor.Mode.GATHER_ONLY);
+            executor.start(mismatch);
+            executor.tick();
+            var targetChanged = executor.status();
             return new ExecutionStatus[] {first, second, cancelled, replaced,
-                    actions <= 1 ? ExecutionStatus.COMPLETE : ExecutionStatus.FAILED};
+                    actions <= 1 ? ExecutionStatus.COMPLETE : ExecutionStatus.FAILED, targetChanged};
         });
         if (result[0] != ExecutionStatus.CALCULATING || result[1] != ExecutionStatus.BUSY
                 || result[2] != ExecutionStatus.CANCELLED || result[3] != ExecutionStatus.CALCULATING
-                || result[4] != ExecutionStatus.COMPLETE) {
+                 || result[4] != ExecutionStatus.COMPLETE || result[5] != ExecutionStatus.CANCELLED) {
             throw new AssertionError("executor must reject overlapping requests and record cancellation: "
                     + java.util.Arrays.toString(result));
         }
@@ -204,8 +209,11 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                     CraftingExecutor.Mode.GATHER_AND_CRAFT));
             return output;
         });
+        var maxActions = 0;
         for (int tick = 0; tick < 140; tick++) {
             context.waitTicks(1);
+            var actions = context.computeOnClient(mc -> FindMyItemsClient.executor().actionsLastTick());
+            maxActions = Math.max(maxActions, actions);
             var complete = context.computeOnClient(mc -> FindMyItemsClient.executor().status()
                     == ExecutionStatus.COMPLETE);
             if (complete) break;
@@ -218,9 +226,19 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                     + FindMyItemsClient.executor().failureDiagnostics());
             throw new AssertionError("tick-driven pickaxe plan did not complete: " + complete + " " + diagnostics);
         }
-        var crafted = context.computeOnClient(mc -> mc.getSingleplayerServer().getPlayerList()
-                .getPlayer(mc.player.getUUID()).getInventory().countItem(Items.DIAMOND_PICKAXE));
-        if (crafted != 1) throw new AssertionError("expected one crafted diamond pickaxe, found " + crafted);
+        if (maxActions > 1) throw new AssertionError("executor performed multiple actions in one tick: " + maxActions);
+        var conservation = context.computeOnClient(mc -> {
+            var serverPlayer = mc.getSingleplayerServer().getPlayerList().getPlayer(mc.player.getUUID());
+            var inventory = serverPlayer.getInventory();
+            var total = inventory.countItem(Items.DIAMOND) + inventory.countItem(Items.STICK)
+                    + inventory.countItem(Items.DIAMOND_PICKAXE);
+            return new int[] { inventory.countItem(Items.DIAMOND_PICKAXE), total,
+                    serverPlayer.containerMenu.getCarried().getCount() };
+        });
+        if (conservation[0] != 1 || conservation[1] != 1 || conservation[2] != 0) {
+            throw new AssertionError("crafted output must be conserved exactly once: "
+                    + java.util.Arrays.toString(conservation));
+        }
     }
 
     /** With an empty box the crafting view lists recipe roots, not expanded plans. */

@@ -84,11 +84,18 @@ public final class CraftingExecutor {
     }
 
     public record ExecutionRequest(CraftingPlan plan, List<SourceSnapshot> sources,
+                                   StackKey target, long targetGeneration,
                                    long playerGeneration, long worldGeneration, Mode mode) {
         public ExecutionRequest {
             Objects.requireNonNull(plan, "plan");
             sources = List.copyOf(sources);
+            Objects.requireNonNull(target, "target");
             Objects.requireNonNull(mode, "mode");
+        }
+
+        public ExecutionRequest(CraftingPlan plan, List<SourceSnapshot> sources,
+                                long playerGeneration, long worldGeneration, Mode mode) {
+            this(plan, sources, plan.root().item(), 0, playerGeneration, worldGeneration, mode);
         }
     }
 
@@ -186,6 +193,10 @@ public final class CraftingExecutor {
                 || state == State.CANCELLED || state == State.FAILED) return;
         actionsThisTick = 0;
         if (menuActionPending) return;
+        if (!request.target().equals(request.plan().root().item()) || request.targetGeneration() < 0) {
+            cancel(CancelReason.TARGET_CHANGED);
+            return;
+        }
         if (generationChanged()) {
             cancel(generationCancelReason());
             return;
@@ -335,8 +346,8 @@ public final class CraftingExecutor {
             fail(ExecutionStatus.FULL, capacity.failureReason());
             return;
         }
-        request = new ExecutionRequest(plan, activeSources, request.playerGeneration(),
-                request.worldGeneration(), request.mode());
+        request = new ExecutionRequest(plan, activeSources, request.target(), request.targetGeneration(),
+                request.playerGeneration(), request.worldGeneration(), request.mode());
         craftNodes = postOrder(plan.root()).stream().filter(node -> node.craftCount() > 0).toList();
         craftNodeIndex = 0;
         tableRequiredMaterials = craftNodes.stream()
@@ -613,18 +624,24 @@ public final class CraftingExecutor {
         var menuId = mc.player.containerMenu.containerId;
         mc.getSingleplayerServer().execute(() -> {
             var serverPlayer = mc.getSingleplayerServer().getPlayerList().getPlayer(uuid);
+            var outputOverflow = false;
             if (serverPlayer != null && isCurrent(token) && serverPlayer.containerMenu.containerId == menuId) {
                 serverPlayer.containerMenu.clicked(slot, button, ContainerInput.PICKUP, serverPlayer);
                 if (slot == 0 && !serverPlayer.containerMenu.getCarried().isEmpty()) {
                     var carried = serverPlayer.containerMenu.getCarried().copy();
                     serverPlayer.getInventory().add(carried);
                     serverPlayer.containerMenu.setCarried(carried);
+                    outputOverflow = !carried.isEmpty();
                 }
                 serverPlayer.containerMenu.broadcastChanges();
                 serverPlayer.containerMenu.broadcastFullState();
             }
+            var failedToInsertOutput = outputOverflow;
             mc.execute(() -> {
-                if (runToken == token) menuActionPending = false;
+                if (runToken == token) {
+                    menuActionPending = false;
+                    if (failedToInsertOutput) fail(ExecutionStatus.FULL, "crafted output did not fit");
+                }
             });
         });
     }
@@ -685,6 +702,7 @@ public final class CraftingExecutor {
         var mc = Minecraft.getInstance();
         var player = mc.player;
         if (player == null || player.containerMenu == player.inventoryMenu) return;
+        if (!player.containerMenu.getCarried().isEmpty()) return;
         var connection = mc.getConnection();
         if (connection != null) {
             actionsThisTick++;
