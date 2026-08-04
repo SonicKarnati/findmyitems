@@ -5,11 +5,8 @@ import dev.smpb.findmyitems.gui.CatalogScreen;
 import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
 import dev.smpb.findmyitems.craft.CraftingPlan;
-import dev.smpb.findmyitems.craft.CraftingPlanner;
 import dev.smpb.findmyitems.craft.PlanScore;
 import dev.smpb.findmyitems.craft.PlanningInventory;
-import dev.smpb.findmyitems.craft.PlanningPolicy;
-import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.model.BlockPosition;
@@ -93,7 +90,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             enderChestTotalsStayHonest(context, server);
 
             openCatalog(context);
-            assertTickDrivenDiamondPickaxe(context);
+            assertTickDrivenDiamondPickaxe(context, server);
             assertLocateAndAutomaticRetrievalLabels(context);
             assertDefaultCatalogAmount(context);
             search(context, "diamond");
@@ -325,7 +322,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     private static void assertCancellationConservesSourceAndPlayerTotals(
             ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
         resetExecutorFixture(context, server, 3, 0);
-        var before = executorTotals(context, server);
+        var before = executorAccounting(context, server);
         context.computeOnClient(mc -> {
             var diamond = new StackKey("minecraft:diamond", "{}");
             var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(diamond, 3L), 0);
@@ -337,8 +334,8 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         });
         runExecutorTicks(context, 40);
         context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED));
-        var after = executorTotals(context, server);
-        if (before != after) throw new AssertionError("cancellation lost source/player/cursor items: before="
+        var after = executorAccounting(context, server);
+        if (!before.equals(after)) throw new AssertionError("cancellation lost source/player/cursor items: before="
                 + before + " after=" + after);
     }
 
@@ -348,40 +345,34 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         resetExecutorFixture(context, server, 3, 0);
         server.runOnServer(s -> {
             var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
-            chest.setItem(1, new ItemStack(Items.OAK_PLANKS, 12));
+            chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
         });
         context.waitTicks(80);
         openCatalog(context);
         switchViewByShortcut(context, GLFW.GLFW_KEY_3);
-        var result = context.computeOnClient(mc -> {
-            var catalog = RecipeCatalog.from(mc.getSingleplayerServer().getRecipeManager(), mc.level);
-            var diamond = new StackKey("minecraft:diamond", "{}");
-            var planks = new StackKey("minecraft:oak_planks", "{}");
-            var pickaxe = new StackKey("minecraft:diamond_pickaxe", "{}");
-            var plan = CraftingPlanner.plan(catalog, pickaxe, 1,
-                    PlanningInventory.of(Map.of(diamond, 3L, planks, 2L)), PlanningPolicy.DEFAULT);
-            var sources = List.of(sourceSnapshot(diamond, CHEST, 3, 0),
-                    sourceSnapshot(planks, CHEST, 2, 1));
-            var executor = FindMyItemsClient.executor();
-            executor.start(new CraftingExecutor.ExecutionRequest(plan, sources,
-                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
-                    CraftingExecutor.Mode.GATHER_ONLY));
-            executor.tick();
-            var screen = requireCatalog(mc);
-            CatalogScreenTestAccess.showGatherOnlyStatus(screen, plan);
-            return new Object[] {plan, CatalogScreenTestAccess.statusText(screen),
-                    executor.tableRequiredMaterials(), CatalogScreenTestAccess.rowCount(screen)};
+        context.getInput().typeChars("diamond_pickaxe");
+        context.waitTicks(3);
+        clickFirstCraftingRow(context);
+        context.waitTicks(30);
+        var before = executorAccounting(context, server);
+        context.clickScreenButton("screen.findmyitems.craft.gather_materials");
+        var actionStatus = context.computeOnClient(mc -> CatalogScreenTestAccess.statusText(requireCatalog(mc)));
+        runExecutorTicks(context, 100);
+        var result = context.computeOnClient(mc -> new Object[] {
+                FindMyItemsClient.executor().tableRequiredMaterials(),
+                CatalogScreenTestAccess.rowCount(requireCatalog(mc)),
+                FindMyItemsClient.executor().status()
         });
-        var plan = (CraftingPlan) result[0];
-        if (!result[1].toString().contains("crafting table required for")
-                || !result[1].toString().contains("Diamond Pickaxe")
-                || !((List<?>) result[2]).contains(new StackKey("minecraft:diamond_pickaxe", "{}"))
-                || plan.root().craftCount() <= 0
-                || plan.root().children().stream().noneMatch(child ->
-                child.item().equals(new StackKey("minecraft:stick", "{}")) && child.craftCount() > 0)
-                || Integer.parseInt(result[3].toString()) == 0) {
-            throw new AssertionError("gather-only UI must retain the real table requirement: "
-                    + java.util.Arrays.toString(result));
+        var after = executorAccounting(context, server);
+        if (!actionStatus.contains("crafting table required for")
+                || !actionStatus.contains("Diamond Pickaxe")
+                || !((List<?>) result[0]).contains(new StackKey("minecraft:diamond_pickaxe", "{}"))
+                || Integer.parseInt(result[1].toString()) == 0
+                || result[2] != ExecutionStatus.COMPLETE
+                || !before.equals(after)) {
+            throw new AssertionError("gather-only UI/accounting mismatch: status=" + actionStatus
+                    + " required=" + result[0] + " rows=" + result[1] + " executor=" + result[2]
+                    + " before=" + before + " after=" + after);
         }
     }
 
@@ -539,34 +530,49 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                 new ItemStack(Items.COBBLESTONE, 64));
     }
 
-    private static int chestCount(net.minecraft.client.Minecraft minecraft, net.minecraft.world.item.Item item) {
-        if (!(minecraft.level.getBlockEntity(CHEST) instanceof ChestBlockEntity chest)) return 0;
-        var total = 0;
-        for (int slot = 0; slot < chest.getContainerSize(); slot++) {
-            if (chest.getItem(slot).is(item)) total += chest.getItem(slot).getCount();
-        }
-        return total;
-    }
-
-    private static int executorTotals(ClientGameTestContext context,
-                                      net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+    private static Map<String, Long> executorAccounting(ClientGameTestContext context,
+                                                        net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
         return server.computeOnServer(s -> {
-            var total = 0;
+            var totals = new java.util.LinkedHashMap<String, Long>();
             var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
             for (int slot = 0; slot < chest.getContainerSize(); slot++) {
-                if (chest.getItem(slot).is(Items.DIAMOND)) total += chest.getItem(slot).getCount();
+                addAccountingStack(totals, chest.getItem(slot), s.registryAccess());
             }
             for (var player : s.getPlayerList().getPlayers()) {
-                total += player.getInventory().countItem(Items.DIAMOND);
-                total += player.containerMenu.getCarried().is(Items.DIAMOND)
-                        ? player.containerMenu.getCarried().getCount() : 0;
+                for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+                    addAccountingStack(totals, player.getInventory().getItem(slot), player.registryAccess());
+                }
+                addAccountingStack(totals, player.containerMenu.getCarried(), player.registryAccess());
             }
-            return total;
+            return Map.copyOf(totals);
         });
     }
 
-    private static void assertTickDrivenDiamondPickaxe(ClientGameTestContext context) {
-        var before = context.computeOnClient(mc -> executorPickaxeTotals(mc));
+    private static void addAccountingStack(Map<String, Long> totals, ItemStack stack,
+                                           net.minecraft.core.HolderLookup.Provider registries) {
+        if (stack.isEmpty()) return;
+        var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()) + "|"
+                + dev.smpb.findmyitems.observation.SlotReader.serializeComponents(
+                stack.getComponentsPatch(), registries);
+        totals.merge(key, (long) stack.getCount(), Long::sum);
+    }
+
+    private static Map<String, Long> accountingDelta(Map<String, Long> before, Map<String, Long> after) {
+        var delta = new java.util.LinkedHashMap<String, Long>();
+        var keys = new java.util.HashSet<String>();
+        keys.addAll(before.keySet());
+        keys.addAll(after.keySet());
+        for (var key : keys) {
+            var change = after.getOrDefault(key, 0L) - before.getOrDefault(key, 0L);
+            if (change != 0) delta.put(key, change);
+        }
+        return Map.copyOf(delta);
+    }
+
+    private static void assertTickDrivenDiamondPickaxe(
+            ClientGameTestContext context,
+            net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        var before = executorAccounting(context, server);
         var result = context.computeOnClient(mc -> {
             var output = new StackKey("minecraft:diamond_pickaxe", "{}");
             var diamonds = new StackKey("minecraft:diamond", "{}");
@@ -607,28 +613,16 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             throw new AssertionError("tick-driven pickaxe plan did not complete: " + complete + " " + diagnostics);
         }
         if (maxActions > 1) throw new AssertionError("executor performed multiple actions in one tick: " + maxActions);
-        var after = context.computeOnClient(mc -> executorPickaxeTotals(mc));
-        if (before[0] != after[0] + 3 || before[1] != after[1] + 2
-                || after[2] != 1 || after[3] != 0) {
-            throw new AssertionError("source, player inventory, and cursor accounting changed unexpectedly: before="
-                    + java.util.Arrays.toString(before) + " after=" + java.util.Arrays.toString(after));
+        var after = executorAccounting(context, server);
+        var expected = Map.of(
+                "minecraft:diamond|{}", -3L,
+                "minecraft:stick|{}", -2L,
+                "minecraft:diamond_pickaxe|{}", 1L);
+        var delta = accountingDelta(before, after);
+        if (!delta.equals(expected)) {
+            throw new AssertionError("source, inventory, and cursor accounting changed unexpectedly: before="
+                    + before + " after=" + after + " delta=" + delta);
         }
-    }
-
-    /** Returns source diamonds, source sticks, player pickaxes, and cursor count. */
-    private static int[] executorPickaxeTotals(net.minecraft.client.Minecraft minecraft) {
-        var diamonds = indexedSourceCount(minecraft, "minecraft:diamond");
-        var sticks = indexedSourceCount(minecraft, "minecraft:stick");
-        var player = minecraft.getSingleplayerServer().getPlayerList().getPlayer(minecraft.player.getUUID());
-        return new int[] {diamonds, sticks, player.getInventory().countItem(Items.DIAMOND_PICKAXE),
-                player.containerMenu.getCarried().getCount()};
-    }
-
-    private static int indexedSourceCount(net.minecraft.client.Minecraft minecraft, String itemId) {
-        return FindMyItemsClient.index().search(itemId).stream()
-                .filter(result -> result.key().itemId().equals(itemId))
-                .flatMap(result -> result.sources().stream())
-                .mapToInt(dev.smpb.findmyitems.index.SourceResult::count).max().orElse(0);
     }
 
     /** With an empty box the crafting view lists recipe roots, not expanded plans. */

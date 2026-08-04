@@ -372,11 +372,7 @@ public final class CraftingExecutor {
 
     private void gather() {
         if (sourceIndex >= request.sources().size()) {
-            if (request.mode() == Mode.GATHER_ONLY) {
-                advanceCraft();
-            } else {
-                advanceCraft();
-            }
+            advanceCraft();
             return;
         }
         state = State.OPEN_SOURCE;
@@ -606,7 +602,7 @@ public final class CraftingExecutor {
         ingredientIndex = 0;
         carryingIngredient = false;
         ingredientPlaced = false;
-        if (request.mode() == Mode.GATHER_ONLY && activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+        if (request.mode() == Mode.GATHER_ONLY) {
             craftNodeIndex++;
             advanceCraft();
         } else if (activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {

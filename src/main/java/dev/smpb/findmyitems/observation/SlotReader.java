@@ -35,7 +35,8 @@ public final class SlotReader {
         for (int i = 0; i < container.getContainerSize(); i++) {
             var stack = container.getItem(i);
             if (stack.isEmpty()) continue;
-            snapshots.add(snapshotStack(stack, i, ctx, player));
+            snapshots.add(snapshotStack(stack, i, ctx, player,
+                    new StackSnapshot.Provenance(List.of(i), -1)));
             addNestedContents(snapshots, stack, ctx, player, nested, 1,
                     List.of(i), stack.get(DataComponents.CONTAINER) == null ? -1 : i);
         }
@@ -50,7 +51,8 @@ public final class SlotReader {
             var slot = menu.getSlot(i);
             var stack = slot.getItem();
             if (stack.isEmpty()) continue;
-            snapshots.add(snapshotStack(stack, i, ctx, player));
+            snapshots.add(snapshotStack(stack, i, ctx, player,
+                    new StackSnapshot.Provenance(List.of(i), -1)));
             addNestedContents(snapshots, stack, ctx, player, nested, 1,
                     List.of(i), stack.get(DataComponents.CONTAINER) == null ? -1 : i);
         }
