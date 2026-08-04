@@ -1,5 +1,6 @@
 package dev.smpb.findmyitems.craft;
 
+import dev.smpb.findmyitems.model.StackKey;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -16,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * Breaks an item down into the raw materials needed to craft it, recursively, charging each
@@ -30,6 +32,187 @@ public final class CraftingPlanner {
     private static final int MAX_DEPTH = 8;
 
     private CraftingPlanner() {}
+
+    /** Plans against an immutable catalog and never mutates the caller's inventory. */
+    public static CraftingPlan plan(RecipeCatalog catalog, StackKey target, long amount,
+                                    PlanningInventory inventory, PlanningPolicy policy) {
+        return plan(catalog, target, amount, inventory, policy, () -> false);
+    }
+
+    public static CraftingPlan plan(RecipeCatalog catalog, StackKey target, long amount,
+                                    PlanningInventory inventory, PlanningPolicy policy,
+                                    BooleanSupplier cancelled) {
+        if (amount <= 0) throw new IllegalArgumentException("amount must be positive");
+        var memo = new HashMap<MemoKey, PlanningState>();
+        var state = solve(catalog, target, amount, inventory, policy, Set.of(), cancelled, memo);
+        return new CraftingPlan(state.node, state.inventory, state.consumed, state.surplus,
+                state.missing, score(state), state.failedCandidatesCount);
+    }
+
+    private static PlanningState solve(RecipeCatalog catalog, StackKey item, long requested,
+                                       PlanningInventory initial, PlanningPolicy policy,
+                                       Set<StackKey> path, BooleanSupplier cancelled,
+                                       Map<MemoKey, PlanningState> memo) {
+        if (cancelled.getAsBoolean()) return PlanningState.leaf(item, requested, initial, true);
+        var memoKey = new MemoKey(catalog.generation(), item, requested, initial.counts(),
+                policy, path);
+        var cached = memo.get(memoKey);
+        if (cached != null) return cached;
+        var indexed = Math.min(requested, initial.count(item));
+        var stock = initial.consume(item, indexed);
+        var shortfall = requested - indexed;
+        if (shortfall == 0) {
+            var result = PlanningState.covered(item, requested, indexed, stock);
+            memo.put(memoKey, result);
+            return result;
+        }
+        if (path.contains(item)) {
+            var result = PlanningState.missing(item, requested, indexed, stock, false);
+            memo.put(memoKey, result);
+            return result;
+        }
+
+        var recipes = catalog.recipesFor(item);
+        if (recipes.isEmpty()) {
+            var result = PlanningState.missing(item, requested, indexed, stock, false);
+            memo.put(memoKey, result);
+            return result;
+        }
+        var best = (PlanningState) null;
+        var tried = 0;
+        for (var recipe : recipes) {
+            if (cancelled.getAsBoolean() || tried++ >= policy.candidateCap()) break;
+            if (recipe.ingredientOptions().stream().map(options -> bestIngredient(options, stock))
+                    .anyMatch(ingredient -> catalog.sameScc(item, ingredient) && stock.count(ingredient) == 0)) {
+                continue;
+            }
+            var candidate = evaluate(catalog, recipe, item, requested, indexed, shortfall, stock,
+                    policy, path, cancelled, memo);
+            if (candidate == null) continue;
+            if (best == null || score(candidate).compareTo(score(best)) < 0) best = candidate;
+        }
+        if (best == null) best = PlanningState.missing(item, requested, indexed, stock, tried);
+        memo.put(memoKey, best);
+        return best;
+    }
+
+    private static PlanningState evaluate(RecipeCatalog catalog, RecipeCatalog.RecipeDefinition recipe,
+                                           StackKey output, long requested, long indexed, long shortfall,
+                                           PlanningInventory state, PlanningPolicy policy, Set<StackKey> path,
+                                           BooleanSupplier cancelled, Map<MemoKey, PlanningState> memo) {
+        final long crafts;
+        try {
+            crafts = Math.floorDiv(Math.addExact(shortfall, recipe.outputBatch() - 1), recipe.outputBatch());
+        } catch (ArithmeticException overflow) {
+            return PlanningState.failed(output, requested, indexed, state);
+        }
+        var nextPath = new HashSet<>(path);
+        nextPath.add(output);
+        var children = new ArrayList<CraftingPlan.Node>();
+        var missing = new LinkedHashMap<StackKey, Long>();
+        var consumed = new LinkedHashMap<StackKey, Long>();
+        var surplus = new LinkedHashMap<StackKey, Long>();
+        var conversionSource = (StackKey) null;
+        var current = state;
+        try {
+            var ingredients = new LinkedHashMap<StackKey, Long>();
+            for (var options : recipe.ingredientOptions()) {
+                if (cancelled.getAsBoolean()) return null;
+                var choice = bestIngredient(options, current);
+                ingredients.merge(choice, crafts, Math::addExact);
+            }
+            for (var entry : ingredients.entrySet()) {
+                var choice = entry.getKey();
+                var quantity = entry.getValue();
+                if (catalog.sameScc(output, choice) && current.count(choice) == 0) return null;
+                if (catalog.sameScc(output, choice)) conversionSource = choice;
+                var child = solve(catalog, choice, quantity, current, policy, nextPath, cancelled, memo);
+                children.add(child.node);
+                merge(missing, child.missing);
+                merge(consumed, child.consumed);
+                merge(surplus, child.surplus);
+                current = child.inventory;
+            }
+            var extra = Math.subtractExact(Math.multiplyExact(crafts, recipe.outputBatch()), shortfall);
+            if (extra > 0) {
+                current = current.add(output, extra);
+                merge(surplus, Map.of(output, extra));
+            }
+        } catch (ArithmeticException overflow) {
+            return PlanningState.failed(output, requested, indexed, state);
+        }
+        var node = CraftingPlan.node(output, requested, indexed, crafts, children,
+                consumed, surplus, conversionSource);
+        return new PlanningState(node, current, consumed, surplus, missing, false);
+    }
+
+    private static StackKey bestIngredient(List<StackKey> options, PlanningInventory inventory) {
+        var best = options.getFirst();
+        var bestCount = inventory.count(best);
+        for (var option : options) {
+            var count = inventory.count(option);
+            if (count > bestCount) { best = option; bestCount = count; }
+        }
+        return best;
+    }
+
+    private static PlanScore score(PlanningState state) {
+        var missingQuantity = state.missing.values().stream().mapToLong(Long::longValue).sum();
+        var depth = maxDepth(state.node);
+        return new PlanScore(missingQuantity, state.missing.size(), 0, 0, state.consumed.size(),
+                craftCount(state.node), 0, conversionCount(state.node), depth);
+    }
+
+    private static long craftCount(CraftingPlan.Node node) {
+        return node.craftCount() + node.children().stream().mapToLong(CraftingPlanner::craftCount).sum();
+    }
+
+    private static long conversionCount(CraftingPlan.Node node) {
+        return (node.conversionSource() == null ? 0 : 1)
+                + node.children().stream().mapToLong(CraftingPlanner::conversionCount).sum();
+    }
+
+    private static long maxDepth(CraftingPlan.Node node) {
+        var childDepth = node.children().stream().mapToLong(CraftingPlanner::maxDepth).max().orElse(-1);
+        return childDepth + 1;
+    }
+
+    private static void merge(Map<StackKey, Long> target, Map<StackKey, Long> source) {
+        source.forEach((key, value) -> target.merge(key, value, Math::addExact));
+    }
+
+    private record MemoKey(long catalogGeneration, StackKey item, long requested,
+                           Map<StackKey, Long> inventory, PlanningPolicy policy,
+                           Set<StackKey> activePath) {}
+
+    private record PlanningState(CraftingPlan.Node node, PlanningInventory inventory,
+                                 Map<StackKey, Long> consumed, Map<StackKey, Long> surplus,
+                                 Map<StackKey, Long> missing, boolean failedCandidates,
+                                 int failedCandidatesCount) {
+        private PlanningState(CraftingPlan.Node node, PlanningInventory inventory,
+                              Map<StackKey, Long> consumed, Map<StackKey, Long> surplus,
+                              Map<StackKey, Long> missing, boolean failedCandidates) {
+            this(node, inventory, consumed, surplus, missing, failedCandidates,
+                    failedCandidates ? 1 : 0);
+        }
+        static PlanningState covered(StackKey item, long requested, long indexed, PlanningInventory inventory) {
+            return new PlanningState(CraftingPlan.node(item, requested, indexed, 0, List.of(), Map.of(), Map.of(), null),
+                    inventory, Map.of(item, indexed), Map.of(), Map.of(), false);
+        }
+        static PlanningState missing(StackKey item, long requested, long indexed, PlanningInventory inventory, int failures) {
+            return new PlanningState(CraftingPlan.node(item, requested, indexed, 0, List.of(), Map.of(), Map.of(), null),
+                    inventory, indexed == 0 ? Map.of() : Map.of(item, indexed), Map.of(), Map.of(item, requested - indexed), failures > 0, failures);
+        }
+        static PlanningState missing(StackKey item, long requested, long indexed, PlanningInventory inventory, boolean failed) {
+            return missing(item, requested, indexed, inventory, failed ? 1 : 0);
+        }
+        static PlanningState leaf(StackKey item, long requested, PlanningInventory inventory, boolean failed) {
+            return missing(item, requested, 0, inventory, failed);
+        }
+        static PlanningState failed(StackKey item, long requested, long indexed, PlanningInventory inventory) {
+            return missing(item, requested, indexed, inventory, 1);
+        }
+    }
 
     /**
      * @param stack     one of the item, for display
