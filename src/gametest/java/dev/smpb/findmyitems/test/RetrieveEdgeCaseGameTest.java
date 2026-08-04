@@ -193,6 +193,53 @@ public final class RetrieveEdgeCaseGameTest {
         helper.succeed();
     }
 
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrievePathMovesThroughMultipleNestedContainersWithoutTouchingCursor(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        var buried = new ItemStack(Items.GOLD_INGOT, 5);
+        for (int depth = 0; depth < 3; depth++) {
+            var box = new ItemStack(Items.SHULKER_BOX);
+            box.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(buried)));
+            buried = box;
+        }
+        var chest = placeChest(helper, buried);
+        player.containerMenu.setCarried(new ItemStack(Items.STICK, 2));
+        var beforeGold = chest.getItem(0).get(DataComponents.CONTAINER);
+
+        var moved = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, List.of(0, 0, 0, 0), "minecraft:gold_ingot", "{}", 5, 0);
+
+        helper.assertTrue(moved == 5, "all nested gold should move, moved " + moved);
+        helper.assertTrue(player.getInventory().countItem(Items.GOLD_INGOT) == 5,
+                "player should receive all nested gold");
+        helper.assertTrue(player.containerMenu.getCarried().is(Items.STICK)
+                        && player.containerMenu.getCarried().getCount() == 2,
+                "the menu cursor must be preserved");
+        helper.assertTrue(beforeGold != null && !chest.getItem(0).isEmpty(),
+                "the outer container must remain present after the transfer");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void retrievePathRejectsPathsBeyondTheNestingLimit(GameTestHelper helper) {
+        var player = playerNextToChest(helper);
+        var buried = new ItemStack(Items.GOLD_INGOT, 5);
+        for (int depth = 0; depth < 5; depth++) {
+            var box = new ItemStack(Items.SHULKER_BOX);
+            box.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(buried)));
+            buried = box;
+        }
+        placeChest(helper, buried);
+
+        var moved = RetrieveHandler.retrievePath(player, helper.absolutePos(CHEST), dimension(helper),
+                ContainerKind.CHEST, List.of(0, 0, 0, 0, 0, 0), "minecraft:gold_ingot", "{}", 5, 0);
+
+        helper.assertTrue(moved == 0, "retrievePath must reject paths deeper than MAX_NESTING");
+        helper.assertTrue(player.getInventory().countItem(Items.GOLD_INGOT) == 0,
+                "over-deep nested contents must not be retrieved");
+        helper.succeed();
+    }
+
     /**
      * Three diamond swords — plain, Smite IV, Sharpness V — and a take for 64 of the plain one.
      *

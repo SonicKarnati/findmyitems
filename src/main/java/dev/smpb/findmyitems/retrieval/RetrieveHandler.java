@@ -111,7 +111,8 @@ public final class RetrieveHandler {
                                    ContainerKind expectedContainer, List<Integer> path, String itemId,
                                    String componentsJson, int amount, int maxReachBlocks) {
         if (amount <= 0 || !inReach(player, pos, maxReachBlocks)) return 0;
-        if (path == null || path.isEmpty() || path.stream().anyMatch(slot -> slot < 0)) return 0;
+        if (path == null || path.isEmpty() || path.size() > MAX_NESTING
+                || path.stream().anyMatch(slot -> slot < 0)) return 0;
         var facts = Reachability.check(player.level(), player, pos, dimensionId,
                 TargetKind.CONTAINER, expectedContainer, maxReachBlocks);
         if (!facts.actionable()) return 0;
@@ -135,7 +136,8 @@ public final class RetrieveHandler {
     }
 
     private static int takeNested(ServerPlayer player, ItemStack holder, List<Integer> path, int depth,
-                                  String itemId, String componentsJson, int amount) {
+                                   String itemId, String componentsJson, int amount) {
+        if (depth >= MAX_NESTING) return 0;
         var contents = holder.get(DataComponents.CONTAINER);
         if (contents == null || path.get(depth) >= contents.allItemsCopyStream().count()) return 0;
         var items = new ArrayList<>(contents.allItemsCopyStream().toList());

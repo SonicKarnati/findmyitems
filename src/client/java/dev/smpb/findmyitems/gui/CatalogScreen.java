@@ -20,6 +20,7 @@ import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.retrieval.GhostOpen;
 import dev.smpb.findmyitems.retrieval.CraftingExecutor;
+import dev.smpb.findmyitems.retrieval.ExecutionStatus;
 import dev.smpb.findmyitems.retrieval.ReachabilityService;
 import dev.smpb.findmyitems.retrieval.RetrieveHandler;
 import dev.smpb.findmyitems.retrieval.TargetKind;
@@ -137,6 +138,7 @@ public final class CatalogScreen extends Screen {
     private CraftingPlan plannedPlan;
     private long seenRecipeGeneration = -1;
     private String status = "";
+    private ExecutionStatus lastExecutorStatus = ExecutionStatus.COMPLETE;
     private ItemResult hoveredItem;
     private final List<ActionRegion> actionRegions = new ArrayList<>();
 
@@ -322,6 +324,7 @@ public final class CatalogScreen extends Screen {
             selectedOutput = null;
         }
         updateResults();
+        refreshChrome();
         if (selectedOutput != null) requestPlan();
     }
 
@@ -335,6 +338,7 @@ public final class CatalogScreen extends Screen {
         if (view == View.CRAFTING) {
             invalidateQuery();
             updateResults();
+            refreshChrome();
             if (selectedOutput != null) requestPlan();
         }
     }
@@ -551,6 +555,20 @@ public final class CatalogScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        var executorStatus = FindMyItemsClient.executor().status();
+        if (executorStatus != lastExecutorStatus) {
+            lastExecutorStatus = executorStatus;
+            if (executorStatus == ExecutionStatus.COMPLETE
+                    || executorStatus == ExecutionStatus.CANCELLED
+                    || executorStatus == ExecutionStatus.FAILED
+                    || executorStatus == ExecutionStatus.MISSING
+                    || executorStatus == ExecutionStatus.FULL
+                    || executorStatus == ExecutionStatus.NO_TABLE) {
+                if (!status.startsWith("Gathering materials;")) status = executorStatus.statusKey();
+            }
+            refreshChrome();
+        }
+        if (!FindMyItemsClient.executor().busy()) refreshChrome();
         if (view == View.CRAFTING) {
             var catalog = currentCatalog();
             if (catalog != null && seenRecipeGeneration >= 0 && catalog.generation() != seenRecipeGeneration) {
@@ -593,6 +611,10 @@ public final class CatalogScreen extends Screen {
 
     boolean craftingActionsVisible() {
         return gatherButton != null && craftButton != null && gatherButton.visible && craftButton.visible;
+    }
+
+    boolean craftingActionsActive() {
+        return gatherButton != null && craftButton != null && gatherButton.active && craftButton.active;
     }
 
     private List<Row> itemRows() {
@@ -673,10 +695,14 @@ public final class CatalogScreen extends Screen {
                 .toList();
     }
 
-    private void selectOutput(StackKey key) {
+    void selectOutput(StackKey key) {
         if (FindMyItemsClient.executor().busy()) {
             FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED);
         }
+        plannedPlan = null;
+        plannedRows = null;
+        appliedPlanGeneration = -1;
+        refreshChrome();
         var catalog = currentCatalog();
         if (catalog == null) return;
         selectedOutput = new OutputIdentity(key, catalog.generation());
@@ -685,6 +711,7 @@ public final class CatalogScreen extends Screen {
         searchGeneration++;
         requestPlan();
         updateResults();
+        refreshChrome();
     }
 
     private RecipeCatalog currentCatalog() {
@@ -740,6 +767,7 @@ public final class CatalogScreen extends Screen {
         plannedRows = null;
         plannedPlan = null;
         hoveredOutput = null;
+        refreshChrome();
     }
 
     private void startExecution(CraftingExecutor.Mode mode) {
@@ -782,6 +810,7 @@ public final class CatalogScreen extends Screen {
         executor.start(new CraftingExecutor.ExecutionRequest(plannedPlan, sources, selectedOutput.key(),
                 selectedOutput.recipeGeneration(), CraftingExecutor.currentPlayerGeneration(),
                 CraftingExecutor.currentWorldGeneration(), mode));
+        lastExecutorStatus = executor.status();
         status = mode == CraftingExecutor.Mode.GATHER_ONLY
                 ? gatherOnlyStatus(plannedPlan.root(), currentCatalog())
                 : executor.status().statusKey();

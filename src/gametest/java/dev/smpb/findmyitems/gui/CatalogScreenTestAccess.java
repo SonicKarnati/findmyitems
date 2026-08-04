@@ -30,6 +30,14 @@ public final class CatalogScreenTestAccess {
         return screen.craftingActionsVisible();
     }
 
+    public static boolean craftingActionsActive(CatalogScreen screen) {
+        return screen.craftingActionsActive();
+    }
+
+    public static void selectOutput(CatalogScreen screen, dev.smpb.findmyitems.model.StackKey key) {
+        screen.selectOutput(key);
+    }
+
     public static BrowseState browseState(CatalogScreen screen) {
         return new BrowseState(screen.currentRows().size(), screen.planRequestCount(),
                 screen.currentRows().stream().allMatch(row -> row.outputIdentity() != null),

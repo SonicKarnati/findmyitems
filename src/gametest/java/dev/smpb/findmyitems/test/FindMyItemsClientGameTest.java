@@ -357,7 +357,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         resetExecutorFixture(context, server, 3, 0);
         server.runOnServer(s -> {
             var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
-            chest.setItem(1, new ItemStack(Items.STICK, 12));
+            chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
         });
         context.waitTicks(80);
         openCatalog(context);
@@ -377,21 +377,29 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                     + actionStatus + " after=" + refreshedStatus);
         }
         runExecutorTicks(context, 100);
+        context.waitTicks(1);
         var result = context.computeOnClient(mc -> new Object[] {
                 FindMyItemsClient.executor().tableRequiredMaterials(),
                 CatalogScreenTestAccess.rowCount(requireCatalog(mc)),
-                FindMyItemsClient.executor().status()
+                FindMyItemsClient.executor().status(),
+                CatalogScreenTestAccess.craftingActionsActive(requireCatalog(mc))
         });
         var after = executorAccounting(context, server);
+        var expectedDelta = Map.of(
+                "minecraft:oak_log|{}", -1L,
+                "minecraft:oak_planks|{}", 2L,
+                "minecraft:oak_pressure_plate|{}", 1L);
         if (!actionStatus.contains("crafting table required for")
                 || !actionStatus.contains("Diamond Pickaxe")
                 || !((List<?>) result[0]).contains(new StackKey("minecraft:diamond_pickaxe", "{}"))
                 || Integer.parseInt(result[1].toString()) == 0
                 || result[2] != ExecutionStatus.COMPLETE
-                || !before.equals(after)) {
+                || !Boolean.TRUE.equals(result[3])
+                || !accountingDelta(before, after).equals(expectedDelta)) {
             throw new AssertionError("gather-only UI/accounting mismatch: status=" + actionStatus
                     + " required=" + result[0] + " rows=" + result[1] + " executor=" + result[2]
-                    + " before=" + before + " after=" + after);
+                    + " active=" + result[3]
+                    + " before=" + before + " after=" + after + " delta=" + accountingDelta(before, after));
         }
     }
 
@@ -799,6 +807,11 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         if (afterAmount.searchGeneration() <= beforeAmount.searchGeneration()
                 || afterAmount.planGeneration() <= beforeAmount.planGeneration()) {
             throw new AssertionError("amount changes must advance query and plan generations");
+        }
+        context.runOnClient(mc -> CatalogScreenTestAccess.selectOutput(requireCatalog(mc),
+                new StackKey("minecraft:iron_pickaxe", "{}")));
+        if (context.computeOnClient(mc -> CatalogScreenTestAccess.craftingActionsVisible(requireCatalog(mc)))) {
+            throw new AssertionError("selecting a new output must hide actions until its plan arrives");
         }
 
         switchViewByShortcut(context, GLFW.GLFW_KEY_1);

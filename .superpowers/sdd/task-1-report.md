@@ -74,10 +74,13 @@ Status: DONE
 - Source removal is detected by executor ticks after preflight; no direct cancellation is used.
 - Movement changes the real client player position and asserts `OUT_OF_REACH` cancellation.
 - Query and output selection are driven through `CatalogScreen` input and cancel an active executor.
-- Gather-only coverage clicks the real primary action, asserts its visible table requirement before source opening, and verifies complete source/player conservation. Gather-only now skips all recipe execution, including inventory recipes.
+- Gather-only coverage clicks the real primary action, executes the inventory-grid child, then stops before the table recipe while asserting the visible table requirement and accounting the recipe conversion.
 - Menu failure reaches `PLACE_RECIPE`, rejects the queued action, and asserts a failed/cancelled terminal status with `menu action rejected` recorded.
 - Successful pickaxe, action-bound, and conservation coverage remains enabled.
 - Direct container and menu slots now retain their physical provenance path, so UI-built source snapshots are actionable rather than rejected as invalid.
+- Catalog action widgets clear stale plans during replanning and refresh on executor terminal transitions; active index refreshes retain operation status.
+- Menu action callbacks have a bounded timeout, and nested retrieval paths enforce the same maximum depth as indexing.
+- Multi-level nested retrieval coverage preserves the menu cursor and verifies the transfer boundary.
 
 ## Final Verification
 

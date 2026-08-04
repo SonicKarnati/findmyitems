@@ -173,6 +173,7 @@ public final class CraftingExecutor {
         request = Objects.requireNonNull(next, "request");
         journal.clear();
         sourceIndex = 0;
+        timeout = 0;
         callbackPending = false;
         menuActionPending = false;
         craftNodes = List.of();
@@ -194,7 +195,6 @@ public final class CraftingExecutor {
         if (request == null || state == State.IDLE || state == State.COMPLETE
                 || state == State.CANCELLED || state == State.FAILED) return;
         actionsThisTick = 0;
-        if (menuActionPending) return;
         if (!request.target().equals(request.plan().root().item()) || request.targetGeneration() < 0) {
             cancel(CancelReason.TARGET_CHANGED);
             return;
@@ -211,6 +211,7 @@ public final class CraftingExecutor {
             fail("operation timed out");
             return;
         }
+        if (menuActionPending) return;
 
         try {
             switch (state) {
@@ -639,6 +640,7 @@ public final class CraftingExecutor {
         }
         actionsThisTick++;
         menuActionPending = true;
+        timeout = ACTION_TIMEOUT;
         var token = runToken;
         var uuid = mc.player.getUUID();
         var menuId = mc.player.containerMenu.containerId;
@@ -662,6 +664,7 @@ public final class CraftingExecutor {
             mc.execute(() -> {
                 if (runToken == token) {
                     menuActionPending = false;
+                    timeout = 0;
                     if (actionFailure) fail("menu action rejected");
                     else if (failedToInsertOutput) fail(ExecutionStatus.FULL, "crafted output did not fit");
                 }
