@@ -176,7 +176,7 @@ final class CraftingPlannerTest {
         var waterBucket = key("minecraft:water_bucket");
         var catalog = catalog(RecipeCatalog.recipe(key("example:stew"), 1,
                 List.of(List.of(waterBucket)), RecipeCatalog.Station.INVENTORY, 2, 2,
-                Map.of(waterBucket, 1L, bucket, 1L)));
+                Map.of(bucket, 1L)));
         var initial = PlanningInventory.of(Map.of(waterBucket, 1L));
         var plan = CraftingPlanner.plan(catalog, key("example:stew"), 1, initial, PlanningPolicy.DEFAULT);
 
@@ -184,6 +184,23 @@ final class CraftingPlannerTest {
         assertEquals(1, plan.consumedDelta().get(waterBucket));
         assertEquals(1, plan.remainingInventory().count(bucket));
         assertEquals(initial.count(waterBucket), plan.consumedDelta().get(waterBucket));
+    }
+
+    @Test
+    void selectedIngredientAlternativeReturnsOnlyItsRemainder() {
+        var empty = key("example:empty_container");
+        var filled = key("example:filled_container");
+        var output = key("example:output");
+        var catalog = catalog(RecipeCatalog.recipeWithAlternativeRemainders(output, 1,
+                List.of(List.of(empty, filled)), RecipeCatalog.Station.INVENTORY, 2, 2,
+                Map.of(empty, Map.of(empty, 1L), filled, Map.of(filled, 1L))));
+
+        var plan = CraftingPlanner.plan(catalog, output, 1,
+                PlanningInventory.of(Map.of(empty, 1L)), PlanningPolicy.DEFAULT);
+
+        assertEquals(Map.of(empty, 1L), plan.remainders());
+        assertEquals(1, plan.remainingInventory().count(empty));
+        assertEquals(0, plan.remainingInventory().count(filled));
     }
 
     @Test

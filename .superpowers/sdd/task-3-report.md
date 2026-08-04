@@ -1,5 +1,12 @@
 # Task 3 Reviewer-Fix Report
 
+## Follow-Up Fix
+
+- `RecipeCatalog.from` now derives remainder mappings per ingredient alternative by evaluating the live crafting recipe's remaining-item behavior. The planner applies only the mapping for the selected ingredient, rather than aggregating all alternatives.
+- Added a pure alternative-remainder regression and a live cake-recipe GameTest. The live test plans with three milk buckets and verifies three consumed milk buckets, three returned buckets, and conservation in the remaining inventory.
+- `CatalogScreen.craftingRows` now obtains the target identity through `RecipeCatalog.stackKey(new ItemStack(target), level)`, preserving registry-backed component identity.
+- Reduced `PlanScore` to the dimensions currently computed by this task: missing quantity, missing kinds, craft operations, reversible conversions, and tree depth. No unsupported dimensions are hard-coded.
+
 ## Fixes
 
 - Recipe definitions retain station, width, height, and per-craft remainder metadata. Planning policy now rejects disabled stations and recipes larger than the supported inventory/table grid.
@@ -17,23 +24,22 @@
 Commands ran serially in the requested order after the final source change:
 
 1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
-   - `BUILD SUCCESSFUL in 4s`
-   - 17 focused planner/display tests passed.
+   - `BUILD SUCCESSFUL in 1s`
+   - Focused planner/display tests passed, including the selected-alternative remainder regression.
 2. `./gradlew test`
-   - `BUILD SUCCESSFUL in 6s`
+   - `BUILD SUCCESSFUL in 3s`
    - Full JUnit suite passed.
 3. `./gradlew build`
-   - `BUILD SUCCESSFUL in 11s`
-   - Headless game tests passed: `All 27 required tests passed :)`.
+   - `BUILD SUCCESSFUL in 9s`
+   - Headless game tests passed: `All 28 required tests passed :)`.
 4. `./gradlew runGameTest`
-   - `BUILD SUCCESSFUL in 10s`
-   - Headless game tests passed: `All 27 required tests passed :)`.
+   - `BUILD SUCCESSFUL in 8s`
+   - Headless game tests passed: `All 28 required tests passed :)`.
 
 `git diff --check` passed.
 
 ## Concerns
 
-- Live recipe remainder extraction uses each ingredient item's vanilla crafting remainder; recipes whose remainder depends on a selected tag alternative may need richer per-alternative remainder metadata in a later recipe-catalog refinement.
 - Client game tests were not run because they open a real client window.
 - Gradle emits existing deprecation, `sun.misc.Unsafe`, and game-test server lag warnings; no test failures resulted.
 - The unrelated pre-existing `.superpowers/sdd/task-1-report.md` modification remains untouched.

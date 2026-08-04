@@ -153,6 +153,15 @@ public final class CraftingPlanner {
                 current = current.add(output, extra);
                 merge(surplus, Map.of(output, extra));
             }
+            for (var ingredient : selected) {
+                var selectedRemainders = recipe.alternativeRemainders().get(ingredient);
+                if (selectedRemainders == null) continue;
+                for (var remainder : selectedRemainders.entrySet()) {
+                    var count = Math.multiplyExact(crafts, remainder.getValue());
+                    current = current.add(remainder.getKey(), count);
+                    merge(remainders, Map.of(remainder.getKey(), count));
+                }
+            }
             for (var remainder : recipe.remainders().entrySet()) {
                 var count = Math.multiplyExact(crafts, remainder.getValue());
                 current = current.add(remainder.getKey(), count);
@@ -197,8 +206,8 @@ public final class CraftingPlanner {
     private static PlanScore score(PlanningState state) {
         var missingQuantity = checkedSum(state.missing.values());
         var depth = maxDepth(state.node);
-        return new PlanScore(missingQuantity, state.missing.size(), 0, 0, state.consumed.size(),
-                craftCount(state.node), 0, conversionCount(state.node), depth);
+        return new PlanScore(missingQuantity, state.missing.size(), craftCount(state.node),
+                conversionCount(state.node), depth);
     }
 
     private static long craftCount(CraftingPlan.Node node) {

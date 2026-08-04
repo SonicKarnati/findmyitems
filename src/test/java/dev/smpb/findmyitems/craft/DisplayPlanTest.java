@@ -16,9 +16,9 @@ final class DisplayPlanTest {
     @Test
     void independentRootsStartAtDepthZeroAndKeepStableIdentity() {
         var left = CraftingPlan.root(key("example:left"), 1, PlanningInventory.empty(),
-                new PlanScore(0, 0, 0, 0, 0, 0, 0, 0));
+                new PlanScore(0, 0, 0, 0, 0));
         var right = CraftingPlan.root(key("example:right"), 1, PlanningInventory.empty(),
-                new PlanScore(0, 0, 0, 0, 0, 0, 0, 0));
+                new PlanScore(0, 0, 0, 0, 0));
 
         var rows = DisplayPlan.flatten(List.of(left, right));
 
@@ -36,7 +36,7 @@ final class DisplayPlanTest {
                 Map.of(), Map.of(), null);
 
         var rows = DisplayPlan.flatten(CraftingPlan.of(root, PlanningInventory.empty(),
-                Map.of(), Map.of(), Map.of(), new PlanScore(0, 0, 0, 0, 0, 0, 0, 0)));
+                Map.of(), Map.of(), Map.of(), new PlanScore(0, 0, 0, 0, 0)));
 
         assertEquals(List.of(0, 1), rows.stream().map(DisplayPlan.Row::depth).toList());
         assertEquals("example:root[{}]", rows.getFirst().rootId());
@@ -46,7 +46,7 @@ final class DisplayPlanTest {
 
     @Test
     void rootNodeCarriesItsScore() {
-        var score = new PlanScore(1, 2, 3, 4, 5, 6, 7, 8);
+        var score = new PlanScore(1, 2, 3, 4, 5);
         var plan = CraftingPlan.root(key("example:root"), 1, PlanningInventory.empty(), score);
 
         assertEquals(score, plan.root().score());

@@ -561,7 +561,7 @@ public final class CatalogScreen extends Screen {
         }
 
         var catalog = RecipeCatalog.from(server.getRecipeManager(), level);
-        var targetKey = new StackKey(BuiltInRegistries.ITEM.getKey(target).toString(), "{}");
+        var targetKey = RecipeCatalog.stackKey(new ItemStack(target), level);
         var plan = CraftingPlanner.plan(catalog, targetKey, amount, PlanningInventory.of(stock()),
                 dev.smpb.findmyitems.craft.PlanningPolicy.DEFAULT);
         var rows = new ArrayList<Row>();

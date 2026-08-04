@@ -3,6 +3,8 @@ package dev.smpb.findmyitems.craft;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.observation.SlotReader;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeManager;
@@ -35,7 +37,8 @@ public final class RecipeCatalog {
 
     public record RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions,
                                    Station station, int width, int height,
-                                   Map<StackKey, Long> remainders) {
+                                   Map<StackKey, Long> remainders,
+                                   Map<StackKey, Map<StackKey, Long>> alternativeRemainders) {
         public RecipeDefinition {
             if (outputBatch <= 0) throw new IllegalArgumentException("outputBatch must be positive");
             if (width <= 0 || height <= 0) throw new IllegalArgumentException("recipe dimensions must be positive");
@@ -47,10 +50,22 @@ public final class RecipeCatalog {
             if (remainders.values().stream().anyMatch(value -> value == null || value < 0)) {
                 throw new IllegalArgumentException("remainder quantities must be non-negative");
             }
+            alternativeRemainders = alternativeRemainders.entrySet().stream().collect(
+                    java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey,
+                            entry -> Map.copyOf(entry.getValue())));
+            if (alternativeRemainders.values().stream().flatMap(values -> values.values().stream())
+                    .anyMatch(value -> value == null || value < 0)) {
+                throw new IllegalArgumentException("alternative remainder quantities must be non-negative");
+            }
         }
 
         public RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions) {
-            this(output, outputBatch, ingredientOptions, Station.INVENTORY, 2, 2, Map.of());
+            this(output, outputBatch, ingredientOptions, Station.INVENTORY, 2, 2, Map.of(), Map.of());
+        }
+
+        public RecipeDefinition(StackKey output, long outputBatch, List<List<StackKey>> ingredientOptions,
+                                 Station station, int width, int height, Map<StackKey, Long> remainders) {
+            this(output, outputBatch, ingredientOptions, station, width, height, remainders, Map.of());
         }
     }
 
@@ -80,6 +95,13 @@ public final class RecipeCatalog {
         return new RecipeDefinition(output, batch, ingredientOptions, station, width, height, remainders);
     }
 
+    public static RecipeDefinition recipeWithAlternativeRemainders(StackKey output, long batch,
+                                                                    List<List<StackKey>> ingredientOptions,
+                                                                    Station station, int width, int height,
+                                                                    Map<StackKey, Map<StackKey, Long>> remainders) {
+        return new RecipeDefinition(output, batch, ingredientOptions, station, width, height, Map.of(), remainders);
+    }
+
     public static RecipeCatalog from(RecipeManager manager, Level level) {
         var context = SlotDisplayContext.fromLevel(level);
         var found = new ArrayList<RecipeDefinition>();
@@ -99,18 +121,17 @@ public final class RecipeCatalog {
                     }
                     var station = width <= 2 && height <= 2 ? Station.INVENTORY : Station.CRAFTING_TABLE;
                     var slots = new ArrayList<List<StackKey>>();
-                    var remainders = new LinkedHashMap<StackKey, Long>();
                     for (Ingredient ingredient : placement.ingredients()) {
                         var choices = new ArrayList<StackKey>();
                         for (var holderItem : (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) ingredient.items()::iterator) {
                             var ingredientStack = new net.minecraft.world.item.ItemStack(holderItem.value());
                             choices.add(stackKey(ingredientStack, level));
-                            var remainder = ingredientStack.getItem().getCraftingRemainder().create();
-                            if (!remainder.isEmpty()) remainders.merge(stackKey(remainder, level), 1L, Math::addExact);
                         }
                         if (!choices.isEmpty()) slots.add(choices);
                     }
-                    found.add(new RecipeDefinition(output, result.getCount(), slots, station, width, height, remainders));
+                    var alternativeRemainders = alternativeRemainders(recipe, placement, width, height, level);
+                    found.add(new RecipeDefinition(output, result.getCount(), slots, station, width, height,
+                            Map.of(), alternativeRemainders));
                 }
             }
         }
@@ -127,6 +148,34 @@ public final class RecipeCatalog {
     public static StackKey stackKey(net.minecraft.world.item.ItemStack stack, Level level) {
         return new StackKey(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
                 SlotReader.serializeComponents(stack.getComponentsPatch(), level.registryAccess()));
+    }
+
+    private static Map<StackKey, Map<StackKey, Long>> alternativeRemainders(
+            net.minecraft.world.item.crafting.Recipe<?> recipe, net.minecraft.world.item.crafting.PlacementInfo placement,
+            int width, int height, Level level) {
+        if (!(recipe instanceof CraftingRecipe craftingRecipe)) return Map.of();
+        var sample = new ArrayList<net.minecraft.world.item.ItemStack>();
+        for (var i = 0; i < width * height; i++) sample.add(net.minecraft.world.item.ItemStack.EMPTY);
+        var slots = placement.ingredients();
+        for (var i = 0; i < slots.size() && i < sample.size(); i++) {
+            var first = (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) slots.get(i).items()::iterator;
+            var iterator = first.iterator();
+            if (iterator.hasNext()) sample.set(i, new net.minecraft.world.item.ItemStack(iterator.next().value()));
+        }
+        var result = new LinkedHashMap<StackKey, Map<StackKey, Long>>();
+        for (var slot = 0; slot < slots.size() && slot < sample.size(); slot++) {
+            for (var holderItem : (Iterable<net.minecraft.core.Holder<net.minecraft.world.item.Item>>) slots.get(slot).items()::iterator) {
+                var input = new ArrayList<>(sample);
+                input.set(slot, new net.minecraft.world.item.ItemStack(holderItem.value()));
+                var remainderStacks = craftingRecipe.getRemainingItems(CraftingInput.of(width, height, input));
+                if (slot >= remainderStacks.size() || remainderStacks.get(slot).isEmpty()) continue;
+                var ingredientKey = stackKey(input.get(slot), level);
+                var remainderKey = stackKey(remainderStacks.get(slot), level);
+                result.computeIfAbsent(ingredientKey, ignored -> new LinkedHashMap<>())
+                        .put(remainderKey, 1L);
+            }
+        }
+        return result;
     }
 
     private static Map<StackKey, Integer> classifySccs(List<RecipeDefinition> recipes) {

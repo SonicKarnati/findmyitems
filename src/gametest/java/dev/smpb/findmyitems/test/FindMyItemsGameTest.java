@@ -1,6 +1,11 @@
 package dev.smpb.findmyitems.test;
 
 import dev.smpb.findmyitems.index.InMemoryContainerIndex;
+import dev.smpb.findmyitems.craft.CraftingPlanner;
+import dev.smpb.findmyitems.craft.PlanningInventory;
+import dev.smpb.findmyitems.craft.PlanningPolicy;
+import dev.smpb.findmyitems.craft.RecipeCatalog;
+import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.model.ContainerObservation;
 import dev.smpb.findmyitems.model.BlockPosition;
@@ -24,6 +29,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Server-side game tests: real level, real block entities, real player inventory.
@@ -35,6 +41,29 @@ import java.util.List;
 public final class FindMyItemsGameTest {
     private static final String EMPTY_STRUCTURE = "fabric-gametest-api-v1:empty";
     private static final BlockPos CHEST = new BlockPos(1, 1, 1);
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void liveRecipeCatalogReturnsSelectedCraftingRemainders(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var catalog = RecipeCatalog.from(level.getServer().getRecipeManager(), level);
+        var cake = new StackKey("minecraft:cake", "{}");
+        var recipe = catalog.recipesFor(cake).stream().findFirst().orElseThrow();
+        var milk = new StackKey("minecraft:milk_bucket", "{}");
+        var bucket = new StackKey("minecraft:bucket", "{}");
+        helper.assertTrue(recipe.ingredientOptions().stream().anyMatch(options -> options.contains(milk)),
+                "live catalog should contain the cake milk ingredient");
+        var stock = PlanningInventory.of(Map.of(milk, 3L, new StackKey("minecraft:egg", "{}"), 1L,
+                new StackKey("minecraft:sugar", "{}"), 2L, new StackKey("minecraft:wheat", "{}"), 3L));
+        var plan = CraftingPlanner.plan(catalog, cake, 1, stock, PlanningPolicy.DEFAULT);
+        helper.assertTrue(plan.missing().isEmpty(), "cake ingredients should be available");
+        helper.assertTrue(plan.remainders().getOrDefault(bucket, 0L) == 3L,
+                "three selected milk buckets should return three buckets: " + plan.remainders());
+        helper.assertTrue(plan.consumedDelta().getOrDefault(milk, 0L) == 3L,
+                "three milk buckets should be consumed");
+        helper.assertTrue(plan.remainingInventory().count(bucket) == 3L,
+                "returned buckets must be conserved");
+        helper.succeed();
+    }
 
     @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
     public void retrieveMovesRequestedAmountIntoInventory(GameTestHelper helper) {
