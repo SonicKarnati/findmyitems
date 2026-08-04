@@ -602,9 +602,10 @@ public final class CraftingExecutor {
         ingredientIndex = 0;
         carryingIngredient = false;
         ingredientPlaced = false;
-        if (request.mode() == Mode.GATHER_ONLY) {
-            craftNodeIndex++;
-            advanceCraft();
+        if (request.mode() == Mode.GATHER_ONLY
+                && activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
+            state = State.COMPLETE;
+            status = ExecutionStatus.COMPLETE;
         } else if (activeRecipe.station() == RecipeCatalog.Station.CRAFTING_TABLE) {
             state = tableOpen ? State.PLACE_RECIPE : State.LOCATE_TABLE;
         } else if (tableOpen) {

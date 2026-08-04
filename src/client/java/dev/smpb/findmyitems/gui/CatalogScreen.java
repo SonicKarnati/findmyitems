@@ -563,7 +563,7 @@ public final class CatalogScreen extends Screen {
         if (index.revision() == lastSeenRevision) return;
         lastSeenRevision = index.revision();
         if (FindMyItemsClient.executor().busy()) {
-            updateResults(true);
+            updateResults(true, true);
             return;
         }
         invalidateQuery();
@@ -578,13 +578,21 @@ public final class CatalogScreen extends Screen {
     }
 
     private void updateResults(boolean preserveScroll) {
-        status = "";
+        updateResults(preserveScroll, false);
+    }
+
+    private void updateResults(boolean preserveScroll, boolean preserveStatus) {
+        if (!preserveStatus) status = "";
         var rows = switch (view) {
             case ITEMS -> itemRows();
             case CONTAINERS -> containerRows();
             case CRAFTING -> craftingRows();
         };
         rowList.setRows(rows, preserveScroll);
+    }
+
+    boolean craftingActionsVisible() {
+        return gatherButton != null && craftButton != null && gatherButton.visible && craftButton.visible;
     }
 
     private List<Row> itemRows() {
@@ -719,6 +727,7 @@ public final class CatalogScreen extends Screen {
                     appliedPlanGeneration = requestGeneration;
                     status = "";
                     updateResults();
+                    refreshChrome();
                 }));
     }
 

@@ -131,6 +131,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
 
             clickFirstCraftingRow(context);
             assertSingleSelectedPlan(context);
+            assertCraftingActionsVisible(context);
             assertGenerationInvalidation(context);
 
             context.getInput().typeChars("not-a-real-item");
@@ -322,7 +323,18 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     private static void assertCancellationConservesSourceAndPlayerTotals(
             ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
         resetExecutorFixture(context, server, 3, 0);
+        server.runOnServer(s -> {
+            var nested = new ItemStack(Items.SHULKER_BOX);
+            nested.set(DataComponents.CONTAINER,
+                    ItemContainerContents.fromItems(List.of(new ItemStack(Items.GOLD_INGOT, 20))));
+            ((ChestBlockEntity) s.overworld().getBlockEntity(CHEST)).setItem(2, nested);
+        });
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(player ->
+                player.containerMenu.setCarried(new ItemStack(Items.GOLD_INGOT, 2))));
         var before = executorAccounting(context, server);
+        if (before.getOrDefault("minecraft:gold_ingot|{}", 0L) != 22L) {
+            throw new AssertionError("conservation accounting must include nested contents and menu cursor: " + before);
+        }
         context.computeOnClient(mc -> {
             var diamond = new StackKey("minecraft:diamond", "{}");
             var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(diamond, 3L), 0);
@@ -345,7 +357,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         resetExecutorFixture(context, server, 3, 0);
         server.runOnServer(s -> {
             var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
-            chest.setItem(1, new ItemStack(Items.OAK_LOG, 12));
+            chest.setItem(1, new ItemStack(Items.STICK, 12));
         });
         context.waitTicks(80);
         openCatalog(context);
@@ -357,6 +369,13 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         var before = executorAccounting(context, server);
         context.clickScreenButton("screen.findmyitems.craft.gather_materials");
         var actionStatus = context.computeOnClient(mc -> CatalogScreenTestAccess.statusText(requireCatalog(mc)));
+        context.runOnClient(mc -> FindMyItemsClient.index().replace(FindMyItemsClient.index().snapshot()));
+        context.waitTicks(1);
+        var refreshedStatus = context.computeOnClient(mc -> CatalogScreenTestAccess.statusText(requireCatalog(mc)));
+        if (!refreshedStatus.equals(actionStatus)) {
+            throw new AssertionError("index refresh must preserve an active execution status: before="
+                    + actionStatus + " after=" + refreshedStatus);
+        }
         runExecutorTicks(context, 100);
         var result = context.computeOnClient(mc -> new Object[] {
                 FindMyItemsClient.executor().tableRequiredMaterials(),
@@ -555,6 +574,10 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
                 + dev.smpb.findmyitems.observation.SlotReader.serializeComponents(
                 stack.getComponentsPatch(), registries);
         totals.merge(key, (long) stack.getCount(), Long::sum);
+        var contents = stack.get(DataComponents.CONTAINER);
+        if (contents != null) {
+            contents.allItemsCopyStream().forEach(inner -> addAccountingStack(totals, inner, registries));
+        }
     }
 
     private static Map<String, Long> accountingDelta(Map<String, Long> before, Map<String, Long> after) {
@@ -744,6 +767,13 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         state = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc)));
         if (state.generations().appliedPlanGeneration() != state.generations().planGeneration()) {
             throw new AssertionError("selected output should apply its current plan before invalidation");
+        }
+    }
+
+    private static void assertCraftingActionsVisible(ClientGameTestContext context) {
+        var visible = context.computeOnClient(mc -> CatalogScreenTestAccess.craftingActionsVisible(requireCatalog(mc)));
+        if (!visible) {
+            throw new AssertionError("planned crafting output must make gather and craft actions visible");
         }
     }
 

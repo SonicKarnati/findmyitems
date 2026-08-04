@@ -26,6 +26,10 @@ public final class CatalogScreenTestAccess {
         return screen.statusText();
     }
 
+    public static boolean craftingActionsVisible(CatalogScreen screen) {
+        return screen.craftingActionsVisible();
+    }
+
     public static BrowseState browseState(CatalogScreen screen) {
         return new BrowseState(screen.currentRows().size(), screen.planRequestCount(),
                 screen.currentRows().stream().allMatch(row -> row.outputIdentity() != null),
