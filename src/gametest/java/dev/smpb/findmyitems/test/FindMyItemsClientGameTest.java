@@ -2,13 +2,12 @@ package dev.smpb.findmyitems.test;
 
 import dev.smpb.findmyitems.FindMyItemsClient;
 import dev.smpb.findmyitems.gui.CatalogScreen;
+import dev.smpb.findmyitems.gui.CatalogScreenTestAccess;
 import dev.smpb.findmyitems.gui.ChestHighlighter;
 import dev.smpb.findmyitems.index.ItemResult;
 import dev.smpb.findmyitems.model.ContainerKind;
 import dev.smpb.findmyitems.search.InventorySearchController;
-import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.layouts.LayoutElement;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
@@ -28,7 +27,6 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
-import java.lang.reflect.Method;
 
 /**
  * End-to-end test that boots the real Minecraft client, creates a world, and drives the mod
@@ -51,12 +49,6 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     /** Issue #14: emeralds split between a block chest and the ender inventory. */
     private static final int CHEST_EMERALDS = 5;
     private static final int ENDER_EMERALDS = 10;
-    /** Mirrors {@code CatalogScreen.BUTTON_SIZE}, which is not visible from this package. */
-    private static final int TAKE_BUTTON_SIZE = 20;
-    /** {@code AbstractSelectionList.Entry.CONTENT_PADDING}, likewise not visible here. */
-    private static final int ENTRY_CONTENT_PADDING = 2;
-    /** Mirrors {@code CatalogScreen.SLOT_SIZE}. */
-    private static final int SLOT_SIZE = 18;
 
     @Override
     public void runTest(ClientGameTestContext context) {
@@ -127,6 +119,7 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
 
             clickFirstCraftingRow(context);
             assertSingleSelectedPlan(context);
+            assertGenerationInvalidation(context);
 
             context.getInput().typeChars("not-a-real-item");
             context.waitTicks(5);
@@ -149,85 +142,86 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.waitTicks(5);
     }
 
-    /** With an empty box the crafting view lists the whole item registry to pick from. */
+    /** With an empty box the crafting view lists recipe roots, not expanded plans. */
     private static void assertCraftingIndexIsPopulated(ClientGameTestContext context) {
-        var rows = context.computeOnClient(mc -> {
-            var screen = mc.gui.screen();
-            if (!(screen instanceof CatalogScreen)) return -1;
-            return screen.children().stream()
-                    .filter(child -> child instanceof AbstractSelectionList<?>)
-                    .mapToInt(child -> ((AbstractSelectionList<?>) child).children().size())
-                    .max()
-                    .orElse(0);
-        });
+        var rows = context.computeOnClient(mc -> CatalogScreenTestAccess.rowCount(requireCatalog(mc)));
         if (rows < 500) {
-            throw new AssertionError("crafting view should list the item registry, listed " + rows + " rows");
+            throw new AssertionError("crafting view should list recipe roots, listed " + rows + " rows");
         }
     }
 
     private static void assertCraftingBrowseIsLazyAndRootBased(ClientGameTestContext context) {
         var state = context.computeOnClient(mc -> {
             var screen = requireCatalog(mc);
-            return new Object[] {
-                    invoke(screen, "currentRows").toString(),
-                    invoke(screen, "planRequestCount"),
-                    invoke(screen, "selectedIdentity")
-            };
+            return CatalogScreenTestAccess.browseState(screen);
         });
-        if (!state[1].equals(0)) {
-            throw new AssertionError("empty crafting browse must not invoke the planner, requests=" + state[1]);
+        if (state.planRequests() != 0) {
+            throw new AssertionError("empty crafting browse must not invoke the planner, requests="
+                    + state.planRequests());
         }
-        if (state[2] != null) {
+        if (state.selected()) {
             throw new AssertionError("empty crafting browse must not select an output");
         }
-        if (((String) state[0]).contains("MaterialRow")) {
+        if (!state.rootRows()) {
             throw new AssertionError("crafting browse rows must contain root outputs only");
         }
     }
 
     private static void assertCraftingViewportAndScroll(ClientGameTestContext context) {
-        var visible = context.computeOnClient(mc -> (Integer) invoke(requireCatalog(mc), "visibleRowCount"));
-        var total = context.computeOnClient(mc -> ((List<?>) invoke(requireCatalog(mc), "currentRows")).size());
+        var visible = context.computeOnClient(mc -> CatalogScreenTestAccess.visibleRowCount(requireCatalog(mc)));
+        var rendered = context.computeOnClient(mc -> CatalogScreenTestAccess.renderedRowCount(requireCatalog(mc)));
+        var total = context.computeOnClient(mc -> CatalogScreenTestAccess.rowCount(requireCatalog(mc)));
         if (visible <= 0 || visible >= total) {
             throw new AssertionError("crafting viewport should render a clipped subset of rows, visible="
                     + visible + ", total=" + total);
         }
+        if (rendered <= 0 || rendered > visible + 2) {
+            throw new AssertionError("crafting renderer should use visible rows plus overscan, rendered=" + rendered
+                    + ", visible=" + visible);
+        }
 
         context.runOnClient(mc -> requireCatalog(mc).mouseScrolled(200, 100, 0, -20));
         context.waitTicks(2);
-        var before = context.computeOnClient(mc -> (Double) invoke(requireCatalog(mc), "scrollAmount"));
+        var before = context.computeOnClient(mc -> CatalogScreenTestAccess.scrollAmount(requireCatalog(mc)));
         if (before <= 0) {
             throw new AssertionError("crafting list should scroll before an index-only refresh");
         }
         context.runOnClient(mc -> FindMyItemsClient.index().replace(FindMyItemsClient.index().snapshot()));
         context.waitTicks(3);
-        var after = context.computeOnClient(mc -> (Double) invoke(requireCatalog(mc), "scrollAmount"));
+        var after = context.computeOnClient(mc -> CatalogScreenTestAccess.scrollAmount(requireCatalog(mc)));
         if (Math.abs(before - after) > 0.01) {
             throw new AssertionError("index-only refresh must preserve scroll, before=" + before + ", after=" + after);
         }
 
-        var hit = context.computeOnClient(mc -> invoke(requireCatalog(mc), "hitTestRow",
-                new Class<?>[] { double.class, double.class }, new Object[] { 200.0, 100.0 }));
-        var miss = context.computeOnClient(mc -> invoke(requireCatalog(mc), "hitTestRow",
-                new Class<?>[] { double.class, double.class }, new Object[] { 200.0, 10000.0 }));
-        if (hit.toString().equals("OptionalInt.empty") || !miss.toString().equals("OptionalInt.empty")) {
+        var hit = context.computeOnClient(mc -> CatalogScreenTestAccess.hitTestRow(requireCatalog(mc), 200.0, 100.0));
+        var miss = context.computeOnClient(mc -> CatalogScreenTestAccess.hitTestRow(requireCatalog(mc), 200.0, 10000.0));
+        if (hit.isEmpty() || miss.isPresent()) {
             throw new AssertionError("viewport hit testing must accept an in-viewport row and reject clipped space");
+        }
+
+        var bottom = context.computeOnClient(mc -> CatalogScreenTestAccess.lastVisibleRowBottomCenter(requireCatalog(mc)));
+        var bottomHit = context.computeOnClient(mc -> CatalogScreenTestAccess.hitTestRow(requireCatalog(mc),
+                bottom[0], bottom[1]));
+        if (bottomHit.isEmpty()) {
+            throw new AssertionError("bottom clipped row must remain hit-testable inside the viewport");
         }
     }
 
     private static void clickFirstCraftingRow(ClientGameTestContext context) {
         var cursor = context.computeOnClient(mc -> {
-            var list = mc.gui.screen().children().stream()
-                    .filter(child -> child instanceof AbstractSelectionList<?>).map(child -> (AbstractSelectionList<?>) child)
-                    .findFirst().orElseThrow();
-            var row = (LayoutElement) list.children().getFirst();
+            var row = CatalogScreenTestAccess.firstVisibleRowCenter(requireCatalog(mc));
             var window = mc.getWindow();
             return new double[] {
-                    (row.getX() + row.getWidth() / 2.0) * window.getScreenWidth() / window.getGuiScaledWidth(),
-                    (row.getY() + row.getHeight() / 2.0) * window.getScreenHeight() / window.getGuiScaledHeight()
+                    row[0] * window.getScreenWidth() / window.getGuiScaledWidth(),
+                    row[1] * window.getScreenHeight() / window.getGuiScaledHeight()
             };
         });
         context.getInput().setCursorPos(cursor[0], cursor[1]);
+        context.waitTicks(1);
+        var hovered = context.computeOnClient(mc -> CatalogScreenTestAccess.hasHoveredIdentity(requireCatalog(mc)));
+        if (!hovered) {
+            throw new AssertionError("hovering a browse row must expose its stable output identity");
+        }
         context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
         context.waitTicks(1);
     }
@@ -235,20 +229,86 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     private static void assertSingleSelectedPlan(ClientGameTestContext context) {
         var state = context.computeOnClient(mc -> {
             var screen = requireCatalog(mc);
-            return new Object[] { invoke(screen, "planRequestCount"), invoke(screen, "selectedIdentity") };
+            return CatalogScreenTestAccess.selectionState(screen);
         });
-        if (!state[0].equals(1)) {
-            throw new AssertionError("selecting one crafting output must invoke exactly one plan request, requests=" + state[0]);
+        if (state.planRequests() != 1) {
+            throw new AssertionError("selecting one crafting output must invoke exactly one plan request, requests="
+                    + state.planRequests());
         }
-        if (state[1] == null) {
+        if (!state.selected()) {
             throw new AssertionError("selecting a crafting output must retain its stable identity");
+        }
+
+        context.waitTicks(20);
+        state = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc)));
+        if (state.generations().appliedPlanGeneration() != state.generations().planGeneration()) {
+            throw new AssertionError("selected output should apply its current plan before invalidation");
         }
     }
 
     private static void assertSelectionClearsAfterFilter(ClientGameTestContext context) {
-        var selected = context.computeOnClient(mc -> invoke(requireCatalog(mc), "selectedIdentity"));
-        if (selected != null) {
-            throw new AssertionError("filter changes must clear stale crafting selection, found " + selected);
+        var state = context.computeOnClient(mc -> {
+            var screen = requireCatalog(mc);
+            return CatalogScreenTestAccess.selectionState(screen);
+        });
+        if (state.selected() || state.hovered()) {
+            throw new AssertionError("filter changes must clear stale crafting selection");
+        }
+        if (state.generations().appliedPlanGeneration() == state.generations().planGeneration()) {
+            throw new AssertionError("stale plan result must not be applied after a query generation change");
+        }
+    }
+
+    private static void assertGenerationInvalidation(ClientGameTestContext context) {
+        var beforeAmount = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        setCatalogAmount(context, "2");
+        var afterAmount = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        if (afterAmount.searchGeneration() <= beforeAmount.searchGeneration()
+                || afterAmount.planGeneration() <= beforeAmount.planGeneration()) {
+            throw new AssertionError("amount changes must advance query and plan generations");
+        }
+
+        switchViewByShortcut(context, GLFW.GLFW_KEY_1);
+        var beforeView = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        switchViewByShortcut(context, GLFW.GLFW_KEY_3);
+        var afterView = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        if (afterView.searchGeneration() <= beforeView.searchGeneration()) {
+            throw new AssertionError("view changes must advance the query generation");
+        }
+
+        switchViewByShortcut(context, GLFW.GLFW_KEY_1);
+        var beforeLayout = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        click(context, "screen.findmyitems.layout.grid");
+        var afterLayout = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        click(context, "screen.findmyitems.layout.list");
+        if (afterLayout.searchGeneration() <= beforeLayout.searchGeneration()) {
+            throw new AssertionError("layout changes must advance the query generation");
+        }
+
+        switchViewByShortcut(context, GLFW.GLFW_KEY_3);
+        var beforeRecipe = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        context.runOnClient(mc -> CatalogScreen.invalidateRecipeCache());
+        context.waitTicks(2);
+        var afterRecipe = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        if (afterRecipe.searchGeneration() <= beforeRecipe.searchGeneration()) {
+            throw new AssertionError("recipe reloads must advance the query generation");
+        }
+
+        var beforeIndex = afterRecipe;
+        context.runOnClient(mc -> FindMyItemsClient.index().replace(FindMyItemsClient.index().snapshot()));
+        context.waitTicks(2);
+        var afterIndex = context.computeOnClient(mc -> CatalogScreenTestAccess.selectionState(requireCatalog(mc))
+                .generations());
+        if (afterIndex.searchGeneration() <= beforeIndex.searchGeneration()) {
+            throw new AssertionError("index revisions must advance the query generation");
         }
     }
 
@@ -257,26 +317,6 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             throw new AssertionError("catalog screen is not open");
         }
         return screen;
-    }
-
-    private static Object invoke(CatalogScreen screen, String name) {
-        return invoke(screen, name, new Class<?>[0], new Object[0]);
-    }
-
-    private static Object invoke(CatalogScreen screen, String name, Object... arguments) {
-        var types = new Class<?>[arguments.length];
-        for (var i = 0; i < arguments.length; i++) types[i] = arguments[i].getClass();
-        return invoke(screen, name, types, arguments);
-    }
-
-    private static Object invoke(CatalogScreen screen, String name, Class<?>[] types, Object[] arguments) {
-        try {
-            Method method = CatalogScreen.class.getDeclaredMethod(name, types);
-            method.setAccessible(true);
-            return method.invoke(screen, arguments);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError("missing CatalogScreen test probe " + name, e);
-        }
     }
 
     private static void assertShowingItems(ClientGameTestContext context) {
@@ -469,22 +509,12 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         context.waitTicks(3);
         setCatalogAmount(context, String.valueOf(requested));
 
-        // MouseHandler is fed raw window coordinates, so the button's GUI position is scaled back.
         var cursor = context.computeOnClient(mc -> {
-            var list = mc.gui.screen().children().stream()
-                    .filter(child -> child instanceof AbstractSelectionList<?>)
-                    .map(child -> (AbstractSelectionList<?>) child)
-                    .findFirst()
-                    .orElseThrow();
-            // AbstractSelectionList.Entry is protected, so the row is read through LayoutElement
-            // and its content box re-derived rather than widening a vanilla class for a test.
-            var row = (LayoutElement) list.children().getFirst();
+            var row = CatalogScreenTestAccess.firstVisibleRowTakeCenter(requireCatalog(mc));
             var window = mc.getWindow();
-            var takeCentreX = row.getX() + row.getWidth() - ENTRY_CONTENT_PADDING - TAKE_BUTTON_SIZE / 2;
-            var takeCentreY = row.getY() + row.getHeight() / 2;
             return new double[] {
-                    takeCentreX * (double) window.getScreenWidth() / window.getGuiScaledWidth(),
-                    takeCentreY * (double) window.getScreenHeight() / window.getGuiScaledHeight(),
+                    row[0] * window.getScreenWidth() / window.getGuiScaledWidth(),
+                    row[1] * window.getScreenHeight() / window.getGuiScaledHeight(),
             };
         });
 
@@ -631,18 +661,11 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
     /** Puts the cursor on the first grid cell, so the detail pane has something to describe. */
     private static void hoverFirstGridCell(ClientGameTestContext context) {
         var cursor = context.computeOnClient(mc -> {
-            var list = mc.gui.screen().children().stream()
-                    .filter(child -> child instanceof AbstractSelectionList<?>)
-                    .map(child -> (AbstractSelectionList<?>) child)
-                    .findFirst()
-                    .orElseThrow();
-            var row = (LayoutElement) list.children().getFirst();
+            var row = CatalogScreenTestAccess.firstVisibleCellCenter(requireCatalog(mc));
             var window = mc.getWindow();
-            var cellCentreX = row.getX() + ENTRY_CONTENT_PADDING + SLOT_SIZE / 2;
-            var cellCentreY = row.getY() + row.getHeight() / 2;
             return new double[] {
-                    cellCentreX * (double) window.getScreenWidth() / window.getGuiScaledWidth(),
-                    cellCentreY * (double) window.getScreenHeight() / window.getGuiScaledHeight(),
+                    row[0] * window.getScreenWidth() / window.getGuiScaledWidth(),
+                    row[1] * window.getScreenHeight() / window.getGuiScaledHeight(),
             };
         });
         context.getInput().setCursorPos(cursor[0], cursor[1]);

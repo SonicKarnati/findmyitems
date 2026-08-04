@@ -1,0 +1,80 @@
+package dev.smpb.findmyitems.gui;
+
+import java.util.OptionalInt;
+
+/** Typed client-game-test bridge for CatalogScreen's package-private probes. */
+public final class CatalogScreenTestAccess {
+    private CatalogScreenTestAccess() {
+    }
+
+    public record BrowseState(int rowCount, int planRequests, boolean rootRows,
+                              boolean selected, boolean hovered) {
+    }
+
+    public record GenerationValues(long searchGeneration, long planGeneration, long appliedPlanGeneration) {
+    }
+
+    public record SelectionState(int planRequests, boolean selected, boolean hovered, boolean stableIdentity,
+                                 GenerationValues generations) {
+    }
+
+    public static int rowCount(CatalogScreen screen) {
+        return screen.currentRows().size();
+    }
+
+    public static BrowseState browseState(CatalogScreen screen) {
+        return new BrowseState(screen.currentRows().size(), screen.planRequestCount(),
+                screen.currentRows().stream().allMatch(row -> row.outputIdentity() != null),
+                screen.selectedIdentity() != null, screen.hoveredIdentity() != null);
+    }
+
+    public static int visibleRowCount(CatalogScreen screen) {
+        return screen.visibleRowCount();
+    }
+
+    public static int renderedRowCount(CatalogScreen screen) {
+        return screen.renderedRowCount();
+    }
+
+    public static double scrollAmount(CatalogScreen screen) {
+        return screen.scrollAmount();
+    }
+
+    public static OptionalInt hitTestRow(CatalogScreen screen, double x, double y) {
+        return screen.hitTestRow(x, y);
+    }
+
+    public static double[] firstVisibleRowCenter(CatalogScreen screen) {
+        var bounds = screen.firstVisibleRowBounds();
+        return new double[] {bounds.left() + bounds.width() / 2.0, bounds.top() + bounds.height() / 2.0};
+    }
+
+    public static double[] firstVisibleRowTakeCenter(CatalogScreen screen) {
+        var bounds = screen.firstVisibleRowBounds();
+        return new double[] {bounds.left() + bounds.width() - 10, bounds.top() + bounds.height() / 2.0};
+    }
+
+    public static double[] lastVisibleRowBottomCenter(CatalogScreen screen) {
+        var bounds = screen.lastVisibleRowBounds();
+        return new double[] {bounds.left() + bounds.width() / 2.0, bounds.top() + bounds.height() - 0.1};
+    }
+
+    public static double[] firstVisibleCellCenter(CatalogScreen screen) {
+        var bounds = screen.firstVisibleRowBounds();
+        return new double[] {bounds.left() + 9, bounds.top() + bounds.height() / 2.0};
+    }
+
+    public static SelectionState selectionState(CatalogScreen screen) {
+        var generation = screen.generationState();
+        var selected = screen.selectedIdentity();
+        var hovered = screen.hoveredIdentity();
+        return new SelectionState(screen.planRequestCount(), selected != null,
+                hovered != null, selected != null && selected.equals(hovered),
+                new GenerationValues(generation.searchGeneration(), generation.planGeneration(),
+                        generation.appliedPlanGeneration()));
+    }
+
+    public static boolean hasHoveredIdentity(CatalogScreen screen) {
+        return screen.hoveredIdentity() != null;
+    }
+}

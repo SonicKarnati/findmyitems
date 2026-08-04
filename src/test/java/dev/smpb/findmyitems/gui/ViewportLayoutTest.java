@@ -60,6 +60,16 @@ final class ViewportLayoutTest {
     }
 
     @Test
+    void overscanRowsKeepTheirUnclippedRenderPositions() {
+        var layout = ViewportLayout.layout(10, 50, 20, 4, 20, 1);
+
+        assertEquals(-10, layout.rowRect(0).renderTop());
+        assertEquals(10, layout.rowRect(0).top());
+        assertEquals(10, layout.rowRect(1).renderTop());
+        assertEquals(30, layout.rowRect(2).renderTop());
+    }
+
+    @Test
     void nonFiniteScrollIsReplacedWithAClampedFiniteValue() {
         var nan = ViewportLayout.layout(0, 40, 20, 5, Double.NaN, 0);
         var positiveInfinity = ViewportLayout.layout(0, 40, 20, 5, Double.POSITIVE_INFINITY, 0);

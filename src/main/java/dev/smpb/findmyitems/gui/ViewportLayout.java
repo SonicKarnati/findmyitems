@@ -31,12 +31,16 @@ public final class ViewportLayout {
             var rowBottom = rowTop + rowHeight;
             var clippedTop = Math.min(bottom, Math.max(top, rowTop));
             var clippedBottom = Math.min(bottom, rowBottom);
-            return new Row(index, clippedTop, Math.max(0, clippedBottom - clippedTop));
+            return new Row(index, clippedTop, Math.max(0, clippedBottom - clippedTop), rowTop);
         }).toList();
         return new Layout(left, right, top, bottom, rowHeight, rowCount, clamped, firstVisible, lastVisible, rows);
     }
 
-    public record Row(int index, double top, double height) {
+    public record Row(int index, double top, double height, double renderTop) {
+        public Row(int index, double top, double height) {
+            this(index, top, height, top);
+        }
+
         public double bottom() {
             return top + height;
         }
@@ -50,6 +54,11 @@ public final class ViewportLayout {
 
         public double scrollMaximum() {
             return Math.max(0, rowCount * (long) rowHeight - (bottom - top));
+        }
+
+        public boolean contains(double x, double y) {
+            return Double.isFinite(x) && x >= left && x < right
+                    && Double.isFinite(y) && y >= top && y < bottom;
         }
 
         public Row rowRect(int index) {
