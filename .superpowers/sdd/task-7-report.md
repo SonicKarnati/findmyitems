@@ -14,7 +14,8 @@ Implemented the tick-driven gather/craft execution phase.
 - Added exact transfer-count enforcement, live recipe-generation checks, inventory-only gather-and-craft execution, and menu handler identity/failure validation.
 - Added catalog gather/gather-and-craft controls and screen/query cancellation hooks.
 - Added planner, server conservation, stale-source, creative-overflow, and client busy/cancellation tests.
-- Added client integration coverage for target changes, output conservation, cursor state, and actual executor action bounds.
+- Added named client executor regressions that drive full-inventory refusal, deleted-source cancellation, movement and screen closure cancellation, query and selection cancellation, target-generation cancellation, source/player/cursor conservation, gather-only inventory-subrecipe table requirements, and rejected menu actions.
+- Strengthened the tick-driven pickaxe regression to account for indexed source contents, player inventory output, and cursor contents before and after execution.
 - Existing edge tests cover stale nested sources, capacity/full inventories, creative overflow, cancellation, reachability, movement, and dimension changes; client integration covers the actual menu execution path.
 
 ## Verification
@@ -24,7 +25,7 @@ Implemented the tick-driven gather/craft execution phase.
 - `./gradlew runGameTest`: passed, 43 required tests.
 - `./gradlew runClientGameTest`: passed.
 
-The client run emitted environmental warnings for the optional missing ShulkerBoxTooltip dependency, local graphics configuration, and unauthenticated Minecraft services. None caused a test failure.
+The final executor regression run passed with the named scenarios above. The client run emitted the existing environmental warnings for the optional missing ShulkerBoxTooltip dependency, local graphics configuration, and unauthenticated Minecraft services. None caused a test failure.
 
 ## Concerns
 

@@ -146,6 +146,15 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             highlightTheChest(context);
             context.takeScreenshot("chest-highlighted");
             assertExecutorBusyGuard(context);
+            assertExecutorRefusesFullInventory(context, server);
+            assertExecutorCancelsDeletedSource(context, server);
+            assertExecutorCancelsMovement(context);
+            assertExecutorCancelsClosedScreen(context);
+            assertExecutorCancelsQueryAndSelection(context);
+            assertExecutorCancelsChangedTarget(context);
+            assertCancellationConservesSourceAndPlayerTotals(context, server);
+            assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(context);
+            assertExecutorReportsMenuActionFailure(context, server);
         }
     }
 
@@ -186,7 +195,278 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
         }
     }
 
+    private static void assertExecutorRefusesFullInventory(
+            ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 1, 0);
+        var result = context.computeOnClient(mc -> {
+            fillClientInventory(mc);
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"),
+                    Map.of(diamond, 1L), 1);
+            var source = sourceSnapshot(diamond, CHEST, 1, 0);
+            var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(source),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_AND_CRAFT));
+            executor.tick();
+            return new Object[] {executor.status(), executor.state()};
+        });
+        var sourceStillHasItem = server.computeOnServer(s -> s.overworld().getBlockEntity(CHEST) instanceof ChestBlockEntity chest
+                && chest.getItem(0).is(Items.DIAMOND) && chest.getItem(0).getCount() == 1);
+        if (result[0] != ExecutionStatus.FULL || result[1] != CraftingExecutor.State.FAILED || !sourceStillHasItem) {
+            throw new AssertionError("full inventory must refuse before opening the source: "
+                    + java.util.Arrays.toString(result));
+        }
+    }
+
+    private static void assertExecutorCancelsDeletedSource(
+            ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 1, 0);
+        var started = context.computeOnClient(mc -> {
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(diamond, 1L), 0);
+            var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan,
+                    List.of(sourceSnapshot(diamond, CHEST, 1, 0)),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_ONLY));
+            executor.tick();
+            return executor.state();
+        });
+        if (started != CraftingExecutor.State.GATHER) throw new AssertionError("preflight did not enter gather");
+        server.runOnServer(s -> ((ChestBlockEntity) s.overworld().getBlockEntity(CHEST)).setItem(0, ItemStack.EMPTY));
+        context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SOURCE_CHANGED));
+        assertCancelled(context, "SOURCE_CHANGED");
+    }
+
+    private static void assertExecutorCancelsMovement(ClientGameTestContext context) {
+        var generations = new long[] {11, 22};
+        var result = context.computeOnClient(mc -> {
+            var executor = new CraftingExecutor(FindMyItemsClient.index(), FindMyItemsClient.config(),
+                    () -> generations[0], () -> generations[1]);
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(), 0);
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(), 11, 22,
+                    CraftingExecutor.Mode.GATHER_ONLY));
+            executor.tick();
+            generations[0]++;
+            executor.tick();
+            return executor.transferJournal().getLast().note();
+        });
+        if (!result.equals("cancelled:out_of_reach")) {
+            throw new AssertionError("movement must cancel the active executor: " + result);
+        }
+    }
+
+    private static void assertExecutorCancelsClosedScreen(ClientGameTestContext context) {
+        openCatalog(context);
+        var result = context.computeOnClient(mc -> {
+            var executor = startIdleExecutor(CraftingExecutor.Mode.GATHER_ONLY);
+            return executor.state();
+        });
+        context.runOnClient(mc -> ((CatalogScreen) mc.gui.screen()).onClose());
+        context.setScreen(() -> null);
+        if (result == CraftingExecutor.State.IDLE
+                || context.computeOnClient(mc -> FindMyItemsClient.executor().status()) != ExecutionStatus.CANCELLED) {
+            throw new AssertionError("closing the catalog must cancel an active executor");
+        }
+    }
+
+    private static void assertExecutorCancelsQueryAndSelection(ClientGameTestContext context) {
+        openCatalog(context);
+        context.computeOnClient(mc -> startIdleExecutor(CraftingExecutor.Mode.GATHER_ONLY).state());
+        context.getInput().typeChars("diamond");
+        context.waitTicks(1);
+        assertCancelled(context, "QUERY_CHANGED");
+
+        context.computeOnClient(mc -> startIdleExecutor(CraftingExecutor.Mode.GATHER_ONLY).state());
+        context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED));
+        assertCancelled(context, "SELECTION_CHANGED");
+    }
+
+    private static void assertExecutorCancelsChangedTarget(ClientGameTestContext context) {
+        var result = context.computeOnClient(mc -> {
+            var executor = startIdleExecutor(CraftingExecutor.Mode.GATHER_ONLY);
+            executor.setTargetGenerationSupplier(() -> 99);
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(), 0);
+            executor.replace(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    new StackKey("minecraft:diamond_pickaxe", "{}"), 1,
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_ONLY));
+            executor.tick();
+            return executor.transferJournal().getLast().note();
+        });
+        if (!result.equals("cancelled:target_changed")) {
+            throw new AssertionError("recipe generation changes must cancel execution: " + result);
+        }
+    }
+
+    private static void assertCancellationConservesSourceAndPlayerTotals(
+            ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 3, 0);
+        var before = executorTotals(context, server);
+        context.computeOnClient(mc -> {
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(diamond, 3L), 0);
+            FindMyItemsClient.executor().start(new CraftingExecutor.ExecutionRequest(plan,
+                    List.of(sourceSnapshot(diamond, CHEST, 3, 0)),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_ONLY));
+            return null;
+        });
+        runExecutorTicks(context, 40);
+        context.runOnClient(mc -> FindMyItemsClient.executor().cancel(CraftingExecutor.CancelReason.SELECTION_CHANGED));
+        var after = executorTotals(context, server);
+        if (before != after) throw new AssertionError("cancellation lost source/player/cursor items: before="
+                + before + " after=" + after);
+    }
+
+    private static void assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(
+            ClientGameTestContext context) {
+        var result = context.computeOnClient(mc -> {
+            var stick = new StackKey("minecraft:stick", "{}");
+            var pickaxe = new StackKey("minecraft:diamond_pickaxe", "{}");
+            var child = CraftingPlan.node(stick, 1, 0, 1, List.of(), Map.of(), Map.of(), null);
+            var root = CraftingPlan.node(pickaxe, 1, 0, 1, List.of(child), Map.of(), Map.of(), null);
+            var plan = CraftingPlan.of(root, PlanningInventory.empty(), Map.of(), Map.of(), Map.of(),
+                    new PlanScore(0, 0, 0, 0, 0));
+            var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(),
+                    CraftingExecutor.Mode.GATHER_ONLY));
+            executor.tick();
+            return executor.tableRequiredMaterials();
+        });
+        if (!result.contains(new StackKey("minecraft:diamond_pickaxe", "{}"))) {
+            throw new AssertionError("gather-only must retain the visible table-required root after inventory subrecipes");
+        }
+    }
+
+    private static void assertExecutorReportsMenuActionFailure(
+            ClientGameTestContext context, net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        resetExecutorFixture(context, server, 0, 0);
+        var result = context.computeOnClient(mc -> {
+            mc.player.getInventory().setItem(0, new ItemStack(Items.DIAMOND));
+            mc.player.getInventory().setItem(1, new ItemStack(Items.STICK, 2));
+            var diamond = new StackKey("minecraft:diamond", "{}");
+            var sticks = new StackKey("minecraft:stick", "{}");
+            var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"),
+                    Map.of(diamond, 1L, sticks, 2L), 1);
+            var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(), 0, 0,
+                    CraftingExecutor.Mode.GATHER_AND_CRAFT));
+            return executor.state();
+        });
+        if (result == CraftingExecutor.State.IDLE) throw new AssertionError("menu failure fixture did not start");
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(net.minecraft.server.level.ServerPlayer::closeContainer));
+        runExecutorTicks(context, 80);
+        var status = context.computeOnClient(mc -> FindMyItemsClient.executor().status());
+        if (status != ExecutionStatus.FAILED && status != ExecutionStatus.CANCELLED) {
+            throw new AssertionError("a rejected menu action must fail the executor, status=" + status
+                    + " state=" + context.computeOnClient(mc -> FindMyItemsClient.executor().state())
+                    + " diagnostics=" + context.computeOnClient(mc -> FindMyItemsClient.executor().failureDiagnostics()));
+        }
+    }
+
+    private static CraftingPlan executorPlan(StackKey output, Map<StackKey, Long> consumed, long craftCount) {
+        var node = CraftingPlan.node(output, 1, 0, craftCount, List.of(), consumed, Map.of(), null);
+        return CraftingPlan.of(node, PlanningInventory.empty(), consumed, Map.of(), Map.of(),
+                new PlanScore(0, 0, 0, 0, 0));
+    }
+
+    private static CraftingExecutor.SourceSnapshot sourceSnapshot(StackKey key, BlockPos position,
+                                                                   int count, int slot) {
+        var contents = SourceKey.storage("minecraft:overworld", ContainerKind.CHEST,
+                List.of(new BlockPosition(position.getX(), position.getY(), position.getZ())));
+        return new CraftingExecutor.SourceSnapshot(key, "minecraft:overworld", ContainerKind.CHEST,
+                List.of(position), List.of(slot), count, contents, List.of(contents), new ItemStack(
+                        net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                                net.minecraft.resources.Identifier.parse(key.itemId())).orElseThrow()));
+    }
+
+    private static CraftingExecutor startIdleExecutor(CraftingExecutor.Mode mode) {
+        var plan = executorPlan(new StackKey("minecraft:diamond_pickaxe", "{}"), Map.of(), 0);
+        var executor = FindMyItemsClient.executor();
+            executor.start(new CraftingExecutor.ExecutionRequest(plan, List.of(),
+                    CraftingExecutor.currentPlayerGeneration(), CraftingExecutor.currentWorldGeneration(), mode));
+        executor.tick();
+        return executor;
+    }
+
+    private static void runExecutorTicks(ClientGameTestContext context, int maximum) {
+        for (int tick = 0; tick < maximum; tick++) {
+            context.waitTicks(1);
+            var terminal = context.computeOnClient(mc -> {
+                var status = FindMyItemsClient.executor().status();
+                return status == ExecutionStatus.CANCELLED || status == ExecutionStatus.FAILED
+                        || status == ExecutionStatus.COMPLETE;
+            });
+            if (terminal) return;
+        }
+    }
+
+    private static void assertCancelled(ClientGameTestContext context, String reason) {
+        var result = context.computeOnClient(mc -> new Object[] {
+                FindMyItemsClient.executor().status(),
+                FindMyItemsClient.executor().transferJournal().stream()
+                        .map(CraftingExecutor.TransferJournalEntry::note).anyMatch(note -> note.endsWith(reason.toLowerCase()))
+        });
+        if (result[0] != ExecutionStatus.CANCELLED || !Boolean.TRUE.equals(result[1])) {
+            throw new AssertionError("executor did not cancel for " + reason + ": " + java.util.Arrays.toString(result));
+        }
+    }
+
+    private static void resetExecutorFixture(ClientGameTestContext context,
+                                              net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server,
+                                              int diamonds, int sticks) {
+        context.setScreen(() -> null);
+        server.runOnServer(s -> {
+            var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
+            if (chest == null) {
+                s.overworld().setBlockAndUpdate(CHEST, Blocks.CHEST.defaultBlockState());
+                chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
+            }
+            chest.clearContent();
+            if (diamonds > 0) chest.setItem(0, new ItemStack(Items.DIAMOND, diamonds));
+            if (sticks > 0) chest.setItem(4, new ItemStack(Items.STICK, sticks));
+            for (var player : s.getPlayerList().getPlayers()) player.getInventory().clearContent();
+        });
+        context.runOnClient(mc -> mc.player.getInventory().clearContent());
+        context.waitTicks(2);
+    }
+
+    private static void fillClientInventory(net.minecraft.client.Minecraft minecraft) {
+        for (int slot = 0; slot < 36; slot++) minecraft.player.getInventory().setItem(slot,
+                new ItemStack(Items.COBBLESTONE, 64));
+    }
+
+    private static int chestCount(net.minecraft.client.Minecraft minecraft, net.minecraft.world.item.Item item) {
+        if (!(minecraft.level.getBlockEntity(CHEST) instanceof ChestBlockEntity chest)) return 0;
+        var total = 0;
+        for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+            if (chest.getItem(slot).is(item)) total += chest.getItem(slot).getCount();
+        }
+        return total;
+    }
+
+    private static int executorTotals(ClientGameTestContext context,
+                                      net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        return server.computeOnServer(s -> {
+            var total = 0;
+            var chest = (ChestBlockEntity) s.overworld().getBlockEntity(CHEST);
+            for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+                if (chest.getItem(slot).is(Items.DIAMOND)) total += chest.getItem(slot).getCount();
+            }
+            for (var player : s.getPlayerList().getPlayers()) {
+                total += player.getInventory().countItem(Items.DIAMOND);
+                total += player.containerMenu.getCarried().is(Items.DIAMOND)
+                        ? player.containerMenu.getCarried().getCount() : 0;
+            }
+            return total;
+        });
+    }
+
     private static void assertTickDrivenDiamondPickaxe(ClientGameTestContext context) {
+        var before = context.computeOnClient(mc -> executorPickaxeTotals(mc));
         var result = context.computeOnClient(mc -> {
             var output = new StackKey("minecraft:diamond_pickaxe", "{}");
             var diamonds = new StackKey("minecraft:diamond", "{}");
@@ -227,18 +507,28 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             throw new AssertionError("tick-driven pickaxe plan did not complete: " + complete + " " + diagnostics);
         }
         if (maxActions > 1) throw new AssertionError("executor performed multiple actions in one tick: " + maxActions);
-        var conservation = context.computeOnClient(mc -> {
-            var serverPlayer = mc.getSingleplayerServer().getPlayerList().getPlayer(mc.player.getUUID());
-            var inventory = serverPlayer.getInventory();
-            var total = inventory.countItem(Items.DIAMOND) + inventory.countItem(Items.STICK)
-                    + inventory.countItem(Items.DIAMOND_PICKAXE);
-            return new int[] { inventory.countItem(Items.DIAMOND_PICKAXE), total,
-                    serverPlayer.containerMenu.getCarried().getCount() };
-        });
-        if (conservation[0] != 1 || conservation[1] != 1 || conservation[2] != 0) {
-            throw new AssertionError("crafted output must be conserved exactly once: "
-                    + java.util.Arrays.toString(conservation));
+        var after = context.computeOnClient(mc -> executorPickaxeTotals(mc));
+        if (before[0] != after[0] + 3 || before[1] != after[1] + 2
+                || after[2] != 1 || after[3] != 0) {
+            throw new AssertionError("source, player inventory, and cursor accounting changed unexpectedly: before="
+                    + java.util.Arrays.toString(before) + " after=" + java.util.Arrays.toString(after));
         }
+    }
+
+    /** Returns source diamonds, source sticks, player pickaxes, and cursor count. */
+    private static int[] executorPickaxeTotals(net.minecraft.client.Minecraft minecraft) {
+        var diamonds = indexedSourceCount(minecraft, "minecraft:diamond");
+        var sticks = indexedSourceCount(minecraft, "minecraft:stick");
+        var player = minecraft.getSingleplayerServer().getPlayerList().getPlayer(minecraft.player.getUUID());
+        return new int[] {diamonds, sticks, player.getInventory().countItem(Items.DIAMOND_PICKAXE),
+                player.containerMenu.getCarried().getCount()};
+    }
+
+    private static int indexedSourceCount(net.minecraft.client.Minecraft minecraft, String itemId) {
+        return FindMyItemsClient.index().search(itemId).stream()
+                .filter(result -> result.key().itemId().equals(itemId))
+                .flatMap(result -> result.sources().stream())
+                .mapToInt(dev.smpb.findmyitems.index.SourceResult::count).max().orElse(0);
     }
 
     /** With an empty box the crafting view lists recipe roots, not expanded plans. */
