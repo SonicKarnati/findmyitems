@@ -260,6 +260,14 @@ final class CraftingPlannerTest {
         assertTrue(plan.surplusDelta().isEmpty());
         assertTrue(plan.remainders().isEmpty());
         assertEquals(1, plan.remainingInventory().count(goodInput));
+        assertTrue(plan.root().children().isEmpty());
+        assertTrue(plan.root().consumed().isEmpty());
+        assertTrue(plan.root().generatedSurplus().isEmpty());
+        assertTrue(plan.root().generatedRemainders().isEmpty());
+        var rows = DisplayPlan.flatten(plan);
+        assertEquals(1, rows.size());
+        assertEquals(0, rows.getFirst().depth());
+        assertEquals(1, rows.getFirst().missing());
     }
 
     @Test

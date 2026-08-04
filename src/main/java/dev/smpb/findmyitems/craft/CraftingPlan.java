@@ -19,16 +19,18 @@ public record CraftingPlan(Node root, PlanningInventory remainingInventory,
 
     public record Node(StackKey item, long requested, long indexed, long missing, long craftCount,
                        List<Node> children, Map<StackKey, Long> consumed,
-                       Map<StackKey, Long> generatedSurplus, StackKey conversionSource, PlanScore score) {
+                       Map<StackKey, Long> generatedSurplus, Map<StackKey, Long> generatedRemainders,
+                       StackKey conversionSource, PlanScore score) {
         public Node {
             children = List.copyOf(children);
             consumed = Map.copyOf(consumed);
             generatedSurplus = Map.copyOf(generatedSurplus);
+            generatedRemainders = Map.copyOf(generatedRemainders);
         }
 
         public Node withScore(PlanScore score) {
             return new Node(item, requested, indexed, missing, craftCount, children, consumed,
-                    generatedSurplus, conversionSource, score);
+                    generatedSurplus, generatedRemainders, conversionSource, score);
         }
     }
 
@@ -36,15 +38,23 @@ public record CraftingPlan(Node root, PlanningInventory remainingInventory,
                             List<Node> children, Map<StackKey, Long> consumed,
                             Map<StackKey, Long> generatedSurplus, StackKey conversionSource) {
         return node(item, requested, indexed, craftCount, children, consumed, generatedSurplus,
-                conversionSource, null);
+                Map.of(), conversionSource, null);
     }
 
     public static Node node(StackKey item, long requested, long indexed, long craftCount,
                             List<Node> children, Map<StackKey, Long> consumed,
                             Map<StackKey, Long> generatedSurplus, StackKey conversionSource,
                             PlanScore score) {
+        return node(item, requested, indexed, craftCount, children, consumed, generatedSurplus,
+                Map.of(), conversionSource, score);
+    }
+
+    public static Node node(StackKey item, long requested, long indexed, long craftCount,
+                            List<Node> children, Map<StackKey, Long> consumed,
+                            Map<StackKey, Long> generatedSurplus, Map<StackKey, Long> generatedRemainders,
+                            StackKey conversionSource, PlanScore score) {
         return new Node(item, requested, indexed, Math.max(0, requested - indexed), craftCount,
-                children, consumed, generatedSurplus, conversionSource, score);
+                children, consumed, generatedSurplus, generatedRemainders, conversionSource, score);
     }
 
     public static Node rootNode(StackKey item, long requested, PlanningInventory inventory,

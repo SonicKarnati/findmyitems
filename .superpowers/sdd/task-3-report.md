@@ -1,5 +1,10 @@
 # Task 3 Reviewer-Fix Report
 
+## Node Rollback Follow-Up
+
+- Rejected candidates now return a single rolled-back missing node with no child nodes or consumption, generated-surplus, or generated-remainder metadata. Successful candidates retain node-level remainder metadata.
+- Added node-tree and `DisplayPlan` assertions to the partial-child-success regression: one root row at depth zero, no child metadata, and missing status consistent with empty committed deltas.
+
 ## Atomicity Follow-Up
 
 - Recipe candidate evaluation now rolls back to the candidate's starting inventory when any sibling child is missing. Child consumption, generated surplus, and remainders are committed only after all children succeed.
@@ -40,13 +45,13 @@
 Commands ran serially in the requested order after the final source change:
 
 1. `./gradlew test --tests '*CraftingPlannerTest' --tests '*DisplayPlanTest'`
-   - `BUILD SUCCESSFUL in 1s`
-   - 21 focused planner/display tests passed, including the partial-child rollback regression.
+   - `BUILD SUCCESSFUL in 2s`
+   - 21 focused planner/display tests passed, including node-tree and display rollback assertions.
 2. `./gradlew test`
    - `BUILD SUCCESSFUL in 4s`
    - Full JUnit suite passed.
 3. `./gradlew build`
-   - `BUILD SUCCESSFUL in 11s`
+   - `BUILD SUCCESSFUL in 10s`
    - Headless game tests passed: `All 28 required tests passed :)`.
 4. `./gradlew runGameTest`
    - `BUILD SUCCESSFUL in 9s`

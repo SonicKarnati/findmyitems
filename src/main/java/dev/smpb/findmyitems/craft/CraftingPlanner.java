@@ -151,7 +151,7 @@ public final class CraftingPlanner {
                 if (child.cancelled) return child;
             }
             if (!childrenSatisfied) {
-                var node = CraftingPlan.node(output, requested, indexed, crafts, children,
+                var node = CraftingPlan.node(output, requested, indexed, 0, List.of(),
                         Map.of(), Map.of(), conversionSource);
                 return new PlanningState(node, state, Map.of(), Map.of(), Map.of(), missing, 0, false);
             }
@@ -179,7 +179,7 @@ public final class CraftingPlanner {
             return PlanningState.failed(output, requested, indexed, state);
         }
         var node = CraftingPlan.node(output, requested, indexed, crafts, children,
-                consumed, surplus, conversionSource);
+                consumed, surplus, remainders, conversionSource, null);
         return new PlanningState(node, current, consumed, surplus, remainders, missing, 0, false);
     }
 
@@ -191,7 +191,8 @@ public final class CraftingPlanner {
         nodeConsumed.merge(item, amount, Math::addExact);
         var node = CraftingPlan.node(state.node.item(), state.node.requested(), state.node.indexed(),
                 state.node.craftCount(), state.node.children(), nodeConsumed,
-                state.node.generatedSurplus(), state.node.conversionSource(), state.node.score());
+                state.node.generatedSurplus(), state.node.generatedRemainders(),
+                state.node.conversionSource(), state.node.score());
         return new PlanningState(node, state.inventory, consumed, state.surplus, state.remainders,
                 state.missing, state.failedCandidates, false);
     }
