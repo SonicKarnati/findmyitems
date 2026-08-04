@@ -19,23 +19,39 @@ public record SearchQuery(List<String> terms) {
     }
 
     public Match match(SearchDocument document) {
+        return match(document, true);
+    }
+
+    public Match match(SearchDocument document, boolean allowFuzzy) {
         if (terms.isEmpty()) return new Match(MatchCategory.EXACT_FULL_NAME, 0);
-        if (terms.stream().allMatch(document.nameTokens()::contains)) {
+        var exactName = terms.size() == 1 && document.nameTokens().contains(terms.getFirst())
+                || document.displayName().equals(String.join(" ", terms));
+        if (exactName) {
             return new Match(MatchCategory.EXACT_FULL_NAME, distanceFromName(document));
         }
-        if (terms.stream().allMatch(document.tokens()::contains)) {
+        if (terms.stream().allMatch(document.tokens()::contains)
+                && terms.stream().anyMatch(term -> !document.nameTokens().contains(term))) {
             return new Match(MatchCategory.COMPLETE_WORD, distanceFromName(document));
         }
         if (orderedInName(document)) return new Match(MatchCategory.ORDERED_MULTI_TOKEN, terms.size());
-        var fuzzyScore = fuzzyScore(document);
-        if (fuzzyScore >= 0) return new Match(MatchCategory.FUZZY, fuzzyScore);
-        if (terms.stream().allMatch(term -> document.nameTokens().stream().anyMatch(token -> token.startsWith(term)))) {
+        var namePrefix = terms.stream().allMatch(term ->
+                document.nameTokens().stream().anyMatch(token -> token.startsWith(term)));
+        var fuzzyScore = allowFuzzy ? fuzzyScore(document) : -1;
+        var typoPrefix = allowFuzzy && namePrefix && isTypoPrefix(fuzzyScore);
+        if (namePrefix && !typoPrefix) {
             return new Match(MatchCategory.WORD_PREFIX, terms.stream().mapToInt(String::length).sum());
         }
-        if (terms.stream().allMatch(document.searchableText()::contains)) {
+        if (!typoPrefix && terms.stream().allMatch(document.searchableText()::contains)) {
             return new Match(MatchCategory.SUBSTRING, document.searchableText().length());
         }
+        if (allowFuzzy) {
+            if (fuzzyScore >= 0) return new Match(MatchCategory.FUZZY, fuzzyScore);
+        }
         return null;
+    }
+
+    private boolean isTypoPrefix(int fuzzyScore) {
+        return fuzzyScore > 0 && terms.stream().anyMatch(term -> term.length() >= 4);
     }
 
     public enum MatchCategory { EXACT_FULL_NAME, COMPLETE_WORD, ORDERED_MULTI_TOKEN, WORD_PREFIX, SUBSTRING, FUZZY }

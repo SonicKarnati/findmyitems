@@ -16,6 +16,7 @@ public record SearchDocument(
         StackKey key,
         String displayName,
         String itemIdentifier,
+        String itemPath,
         List<String> tooltip,
         String componentFingerprint,
         Set<String> nameTokens,
@@ -29,12 +30,13 @@ public record SearchDocument(
 
     public static SearchDocument from(StackSnapshot stack) {
         var name = normalize(stack.displayName());
-        var identifier = normalize(stack.key().itemId().replace('_', ' '));
+        var identifier = normalize(stack.key().itemId());
+        var path = identifier.replace('_', ' ');
         var tooltip = stack.tooltip().stream().map(SearchDocument::normalize).toList();
-        var source = String.join("\n", name, identifier, String.join("\n", tooltip));
+        var source = String.join("\n", name, identifier, path, String.join("\n", tooltip));
         var arabic = source + "\n" + SearchQuery.arabicLevels(source);
         var allTokens = tokens(arabic);
-        return new SearchDocument(stack.key(), name, identifier, tooltip, stack.key().componentsJson(),
+        return new SearchDocument(stack.key(), name, identifier, path, tooltip, stack.key().componentsJson(),
                 Set.copyOf(tokens(name)), allTokens, arabic);
     }
 

@@ -7,7 +7,9 @@ import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.model.StackSnapshot;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 final class SearchQueryTest {
     @Test
@@ -28,6 +30,72 @@ final class SearchQueryTest {
     void fuzzyMatchAllowsAUsedWordTypo() {
         assertEquals(SearchQuery.MatchCategory.FUZZY,
                 match("White Bed", "minecraft:white_bed", "whit bed").category());
+    }
+
+    @Test
+    void wordPrefixAndSubstringOutrankFuzzyMatches() {
+        assertEquals(SearchQuery.MatchCategory.WORD_PREFIX,
+                match("White Bed", "minecraft:white_bed", "whi").category());
+        assertEquals(SearchQuery.MatchCategory.SUBSTRING,
+                match("Bedrock", "minecraft:bedrock", "edr").category());
+    }
+
+    @Test
+    void preservesItemIdWhileHumanizingItsPathForSearch() {
+        var document = SearchDocument.from(stack("minecraft:oak_log", "Oak Log"));
+        assertEquals("minecraft:oak_log", document.itemIdentifier());
+        assertNotNull(SearchQuery.parse("oak log").match(document));
+    }
+
+    @Test
+    void rootIndexExcludesRecipeIngredients() {
+        var parent = stack("minecraft:oak_planks", "Oak Planks");
+        var ingredient = stack("minecraft:oak_log", "Oak Log");
+        var index = SearchIndex.rootOnly(List.of(parent, ingredient), Set.of(parent.key()));
+
+        assertEquals(List.of("minecraft:oak_planks"), index.search(SearchQuery.parse("oak"), 20)
+                .stream().map(SearchDocument::itemIdentifier).toList());
+    }
+
+    @Test
+    void searchLimitIsAppliedAfterDeterministicRanking() {
+        var stacks = new ArrayList<StackSnapshot>();
+        for (var i = 0; i < 20; i++) stacks.add(stack("example:item_" + i, "Item " + i));
+        var results = new SearchIndex(stacks).search(SearchQuery.parse("item"), 3);
+
+        assertEquals(3, results.size());
+        assertEquals(List.of("example:item_0", "example:item_1", "example:item_2"),
+                results.stream().map(SearchDocument::itemIdentifier).toList());
+    }
+
+    @Test
+    void fuzzyDistanceUsesReducedCandidates() {
+        var stacks = new ArrayList<StackSnapshot>();
+        for (var i = 0; i < 100; i++) stacks.add(stack("example:item_" + i, "Item " + i));
+        stacks.add(stack("minecraft:white_bed", "White Bed"));
+        var index = new SearchIndex(stacks);
+
+        assertEquals(List.of("minecraft:white_bed"), index.search(SearchQuery.parse("whit"), 20)
+                .stream().map(SearchDocument::itemIdentifier).toList());
+        assertTrue(index.lastCandidateCount() < stacks.size());
+        assertTrue(index.lastFuzzyCandidateCount() < stacks.size());
+    }
+
+    @Test
+    void ranksAllMatchCategoriesInOrder() {
+        var stacks = List.of(
+                stack("example:exact", "White Bed"),
+                new StackSnapshot(new StackKey("example:complete", "{}"), 1, "White Wool",
+                        List.of("White Bed")),
+                stack("example:ordered", "White Bed Deluxe"),
+                stack("example:prefix", "White Bedside"),
+                stack("example:substring", "White Stonebed"),
+                stack("example:fuzzy", "White Bec"));
+        var results = new SearchIndex(stacks).search(SearchQuery.parse("white bed"), 20);
+
+        assertEquals(List.of("example:exact", "example:complete", "example:ordered", "example:prefix",
+                        "example:substring", "example:fuzzy"),
+                results.stream().map(SearchDocument::itemIdentifier).toList());
     }
 
     @Test

@@ -4,10 +4,9 @@ import dev.smpb.findmyitems.model.ContainerObservation;
 import dev.smpb.findmyitems.model.SourceKey;
 import dev.smpb.findmyitems.model.StackKey;
 import dev.smpb.findmyitems.model.StackSnapshot;
-import dev.smpb.findmyitems.search.SearchDocument;
+import dev.smpb.findmyitems.search.SearchIndex;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -83,28 +82,26 @@ public final class InMemoryContainerIndex implements ContainerIndex {
     @Override
     public List<ItemResult> search(String input) {
         var query = SearchQuery.parse(input);
-        var aggregated = new LinkedHashMap<StackKey, MutableItem>();
-        var ranking = new HashMap<StackKey, SearchQuery.Match>();
+        var examples = new LinkedHashMap<StackKey, StackSnapshot>();
+        var localByContainer = new LinkedHashMap<IndexedContainer, Map<StackKey, LocalItem>>();
         for (var container : containers.values()) {
             var local = aggregateOf(container);
-            for (var entry : local.entrySet()) {
-                var stack = entry.getValue().example;
-                var match = query.match(SearchDocument.from(stack));
-                if (match == null) {
-                    continue;
-                }
-                ranking.putIfAbsent(stack.key(), match);
-                var item = aggregated.computeIfAbsent(stack.key(), ignored -> new MutableItem(stack));
-                item.accept(container, entry.getValue().count, stack);
+            localByContainer.put(container, local);
+            local.values().forEach(item -> examples.putIfAbsent(item.example().key(), item.example()));
+        }
+        var ordered = new SearchIndex(examples.values()).search(query, Integer.MAX_VALUE);
+        var aggregated = new LinkedHashMap<StackKey, MutableItem>();
+        for (var document : ordered) {
+            var example = examples.get(document.key());
+            var item = new MutableItem(example);
+            for (var entry : localByContainer.entrySet()) {
+                var local = entry.getValue().get(document.key());
+                if (local != null) item.accept(entry.getKey(), local.count(), local.example());
             }
+            aggregated.put(document.key(), item);
         }
         return aggregated.values().stream()
                 .map(MutableItem::toResult)
-                .sorted(Comparator.comparingInt((ItemResult result) -> ranking.get(result.key()).category().ordinal())
-                        .thenComparingInt(result -> ranking.get(result.key()).score())
-                        .thenComparing(ItemResult::displayName, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(result -> result.key().itemId())
-                        .thenComparing(result -> result.key().componentsJson()))
                 .toList();
     }
 

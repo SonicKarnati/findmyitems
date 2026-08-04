@@ -3,6 +3,8 @@ package dev.smpb.findmyitems.index;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.smpb.findmyitems.model.*;
+import dev.smpb.findmyitems.search.SearchDocument;
+import dev.smpb.findmyitems.index.SearchQuery;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -230,5 +232,38 @@ final class InMemoryContainerIndexTest {
         index.observe(observation(SOURCE, SOURCE, slot(0, "minecraft:oak_log", 1, "Oak Log")));
 
         assertTrue(index.search("plank").isEmpty());
+    }
+
+    @Test
+    void keepsComponentSpecificVariantsSeparateAndUsesSharedMatcher() {
+        var index = new InMemoryContainerIndex();
+        var plain = SourceKey.storage(DIM, ContainerKind.CHEST,
+                List.of(new BlockPosition(20, 64, 200)));
+        var enchanted = SourceKey.storage(DIM, ContainerKind.CHEST,
+                List.of(new BlockPosition(21, 64, 200)));
+        var plainStack = new StackSnapshot(new StackKey("minecraft:diamond_sword", "{}"), 1,
+                "Diamond Sword", List.of());
+        var enchantedStack = new StackSnapshot(new StackKey("minecraft:diamond_sword", "{sharpness:5}"), 1,
+                "Diamond Sword", List.of("Sharpness V"));
+        index.observe(observation(plain, plain, new SlotSnapshot(0, plainStack)));
+        index.observe(observation(enchanted, enchanted, new SlotSnapshot(0, enchantedStack)));
+
+        var results = index.search("sharpness 5");
+        assertEquals(1, results.size());
+        assertEquals("{sharpness:5}", results.getFirst().identity().componentsJson());
+        assertNotNull(SearchQuery.parse("sharpness 5").match(SearchDocument.from(enchantedStack)));
+        assertNull(SearchQuery.parse("sharpness 5").match(SearchDocument.from(plainStack)));
+    }
+
+    @Test
+    void containerSearchUsesTheSameMatcherAsCatalogDocuments() {
+        var index = new InMemoryContainerIndex();
+        var stack = new StackSnapshot(new StackKey("minecraft:oak_log", "{}"), 4,
+                "Oak Log", List.of());
+        index.observe(observation(SOURCE, SOURCE, new SlotSnapshot(0, stack)));
+
+        assertNotNull(SearchQuery.parse("oak_log").match(SearchDocument.from(stack)));
+        assertEquals(List.of("minecraft:oak_log"), index.search("oak_log").stream()
+                .map(result -> result.key().itemId()).toList());
     }
 }
