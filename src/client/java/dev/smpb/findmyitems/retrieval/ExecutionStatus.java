@@ -1,5 +1,7 @@
 package dev.smpb.findmyitems.retrieval;
 
+import net.minecraft.network.chat.Component;
+
 /** The small set of states exposed by the gather/craft action. */
 public enum ExecutionStatus {
     CALCULATING("calculating"),
@@ -21,5 +23,9 @@ public enum ExecutionStatus {
 
     public String statusKey() {
         return statusKey;
+    }
+
+    public Component component() {
+        return Component.translatable("screen.findmyitems.craft." + statusKey);
     }
 }

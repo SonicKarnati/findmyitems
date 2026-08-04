@@ -137,7 +137,8 @@ public final class CatalogScreen extends Screen {
     private List<DisplayPlan.Row> plannedRows;
     private CraftingPlan plannedPlan;
     private long seenRecipeGeneration = -1;
-    private String status = "";
+    private Component status = Component.empty();
+    private boolean gatherOnlyStatus;
     private ExecutionStatus lastExecutorStatus = ExecutionStatus.COMPLETE;
     private ItemResult hoveredItem;
     private final List<ActionRegion> actionRegions = new ArrayList<>();
@@ -432,8 +433,8 @@ public final class CatalogScreen extends Screen {
 
         graphics.centeredText(font, title, width / 2, TITLE_Y, TEXT);
 
-        if (resultCount == 0 && !status.isEmpty()) {
-            graphics.centeredText(font, Component.literal(status), width / 2, height / 2 - 4, TEXT_DIM);
+        if (resultCount == 0 && !status.getString().isEmpty()) {
+            graphics.centeredText(font, status, width / 2, height / 2 - 4, TEXT_DIM);
         }
 
         var footer = switch (view) {
@@ -564,7 +565,7 @@ public final class CatalogScreen extends Screen {
                     || executorStatus == ExecutionStatus.MISSING
                     || executorStatus == ExecutionStatus.FULL
                     || executorStatus == ExecutionStatus.NO_TABLE) {
-                if (!status.startsWith("Gathering materials;")) status = executorStatus.statusKey();
+                if (!gatherOnlyStatus) status = executorStatus.component();
             }
             refreshChrome();
         }
@@ -600,7 +601,7 @@ public final class CatalogScreen extends Screen {
     }
 
     private void updateResults(boolean preserveScroll, boolean preserveStatus) {
-        if (!preserveStatus) status = "";
+        if (!preserveStatus) status = Component.empty();
         var rows = switch (view) {
             case ITEMS -> itemRows();
             case CONTAINERS -> containerRows();
@@ -622,8 +623,8 @@ public final class CatalogScreen extends Screen {
         resultCount = results.size();
         if (results.isEmpty()) {
             status = currentQuery.isEmpty()
-                    ? Component.translatable("screen.findmyitems.empty").getString()
-                    : Component.translatable("screen.findmyitems.no_results", currentQuery).getString();
+                    ? Component.translatable("screen.findmyitems.empty")
+                    : Component.translatable("screen.findmyitems.no_results", currentQuery);
             return List.of();
         }
         return layout() == Layout.LIST
@@ -650,7 +651,7 @@ public final class CatalogScreen extends Screen {
 
         resultCount = cards.size();
         if (cards.isEmpty()) {
-            status = Component.translatable("screen.findmyitems.no_containers").getString();
+            status = Component.translatable("screen.findmyitems.no_containers");
             return List.of();
         }
         return layout() == Layout.LIST
@@ -663,7 +664,7 @@ public final class CatalogScreen extends Screen {
         if (plannedRows == null) {
             status = Component.translatable(planRequestCount > 1
                     ? "screen.findmyitems.craft.busy"
-                    : "screen.findmyitems.craft.calculating").getString();
+                    : "screen.findmyitems.craft.calculating");
             return List.of();
         }
         resultCount = plannedRows.size();
@@ -681,7 +682,7 @@ public final class CatalogScreen extends Screen {
         var server = mc.getSingleplayerServer();
         var level = mc.level;
         if (server == null || level == null) {
-            status = Component.translatable("screen.findmyitems.craft.singleplayer_only").getString();
+            status = Component.translatable("screen.findmyitems.craft.singleplayer_only");
             return List.of();
         }
 
@@ -733,14 +734,14 @@ public final class CatalogScreen extends Screen {
         var identity = selectedOutput;
         var inventory = PlanningInventory.of(stock());
         planRequestCount++;
-        status = Component.translatable("screen.findmyitems.craft.calculating").getString();
+        status = Component.translatable("screen.findmyitems.craft.calculating");
         plannedRows = null;
         CompletableFuture.supplyAsync(() -> CraftingPlanner.plan(catalog, identity.key(), requestedAmount,
                         inventory, dev.smpb.findmyitems.craft.PlanningPolicy.DEFAULT))
                 .whenComplete((plan, failure) -> Minecraft.getInstance().execute(() -> {
                     if (failure != null) {
                         if (requestGeneration == planGeneration) {
-                            status = Component.translatable("screen.findmyitems.craft.failed").getString();
+                            status = Component.translatable("screen.findmyitems.craft.failed");
                             plannedRows = List.of();
                             updateResults();
                         }
@@ -752,7 +753,7 @@ public final class CatalogScreen extends Screen {
                     plannedRows = DisplayPlan.flatten(plan);
                     plannedPlan = plan;
                     appliedPlanGeneration = requestGeneration;
-                    status = "";
+                    status = Component.empty();
                     updateResults();
                     refreshChrome();
                 }));
@@ -776,7 +777,7 @@ public final class CatalogScreen extends Screen {
         for (var entry : plannedPlan.consumedDelta().entrySet()) {
             var template = buildStack(entry.getKey());
             if (template.isEmpty()) {
-                status = Component.translatable("screen.findmyitems.craft.unavailable").getString();
+                status = Component.translatable("screen.findmyitems.craft.unavailable");
                 return;
             }
             var result = index.search(entry.getKey().itemId()).stream()
@@ -811,18 +812,18 @@ public final class CatalogScreen extends Screen {
                 selectedOutput.recipeGeneration(), CraftingExecutor.currentPlayerGeneration(),
                 CraftingExecutor.currentWorldGeneration(), mode));
         lastExecutorStatus = executor.status();
-        status = mode == CraftingExecutor.Mode.GATHER_ONLY
+        gatherOnlyStatus = mode == CraftingExecutor.Mode.GATHER_ONLY;
+        status = gatherOnlyStatus
                 ? gatherOnlyStatus(plannedPlan.root(), currentCatalog())
-                : executor.status().statusKey();
+                : executor.status().component();
         refreshChrome();
     }
 
-    private String gatherOnlyStatus(CraftingPlan.Node node, RecipeCatalog catalog) {
+    private Component gatherOnlyStatus(CraftingPlan.Node node, RecipeCatalog catalog) {
         var tableItems = new LinkedHashSet<String>();
         collectTableRequirements(node, catalog, tableItems);
-        if (tableItems.isEmpty()) return Component.translatable("screen.findmyitems.craft.gather_materials").getString();
-        return Component.translatable("screen.findmyitems.craft.table_required",
-                String.join(", ", tableItems)).getString();
+        if (tableItems.isEmpty()) return Component.translatable("screen.findmyitems.craft.gather_materials");
+        return Component.translatable("screen.findmyitems.craft.table_required", String.join(", ", tableItems));
     }
 
     private void collectTableRequirements(CraftingPlan.Node node, RecipeCatalog catalog, Set<String> tableItems) {
@@ -1343,7 +1344,7 @@ public final class CatalogScreen extends Screen {
     }
 
     String statusText() {
-        return status;
+        return status.getString();
     }
 
     GenerationState generationState() {

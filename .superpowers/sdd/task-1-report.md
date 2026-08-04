@@ -84,6 +84,8 @@ Status: DONE
 - The maximum indexed path is root plus four nested levels; that boundary transfers successfully and deeper malformed paths are rejected.
 - A real menu action with its callback token invalidated remains pending only until `ACTION_TIMEOUT`, then fails with a journaled timeout rather than hanging.
 - Gather-only table-required status is localized through the English language bundle.
+- Crafted output insertion measures each slot explicitly, retains overflow on the menu cursor, and fails safely instead of relying on `Inventory.add`, including in creative mode.
+- Execution status rendering uses translated `Component` values, and `SourceSnapshot.template()` returns a defensive copy.
 
 ## Final Verification
 

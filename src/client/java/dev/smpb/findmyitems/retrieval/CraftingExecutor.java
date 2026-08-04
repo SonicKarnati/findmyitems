@@ -12,6 +12,7 @@ import dev.smpb.findmyitems.observation.SlotReader;
 import dev.smpb.findmyitems.gui.CatalogScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
@@ -71,6 +72,11 @@ public final class CraftingExecutor {
             template = template.copyWithCount(1);
             if (positions.isEmpty() || path.isEmpty() || path.stream().anyMatch(slot -> slot < 0)
                     || count <= 0) throw new IllegalArgumentException("invalid source snapshot");
+        }
+
+        @Override
+        public ItemStack template() {
+            return template.copy();
         }
 
         public BlockPos position() {
@@ -652,10 +658,10 @@ public final class CraftingExecutor {
             if (serverPlayer != null && isCurrent(token) && serverPlayer.containerMenu.containerId == menuId) {
                 serverPlayer.containerMenu.clicked(slot, button, ContainerInput.PICKUP, serverPlayer);
                 if (slot == 0 && !serverPlayer.containerMenu.getCarried().isEmpty()) {
-                    var carried = serverPlayer.containerMenu.getCarried().copy();
-                    serverPlayer.getInventory().add(carried);
-                    serverPlayer.containerMenu.setCarried(carried);
-                    outputOverflow = !carried.isEmpty();
+                    var remainder = insertCraftedOutput(serverPlayer,
+                            serverPlayer.containerMenu.getCarried().copy());
+                    serverPlayer.containerMenu.setCarried(remainder);
+                    outputOverflow = !remainder.isEmpty();
                 }
                 serverPlayer.containerMenu.broadcastChanges();
                 serverPlayer.containerMenu.broadcastFullState();
@@ -670,6 +676,29 @@ public final class CraftingExecutor {
                 }
             });
         });
+    }
+
+    static ItemStack insertCraftedOutput(ServerPlayer player, ItemStack output) {
+        var remainder = output.copy();
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < 36 && !remainder.isEmpty(); slot++) {
+            var existing = inventory.getItem(slot);
+            if (existing.isEmpty() || !ItemStack.isSameItemSameComponents(existing, remainder)) continue;
+            var room = Math.min(inventory.getMaxStackSize(), existing.getMaxStackSize()) - existing.getCount();
+            if (room <= 0) continue;
+            var moved = Math.min(room, remainder.getCount());
+            existing.grow(moved);
+            remainder.shrink(moved);
+        }
+        for (int slot = 0; slot < 36 && !remainder.isEmpty(); slot++) {
+            if (!inventory.getItem(slot).isEmpty()) continue;
+            var moved = Math.min(inventory.getMaxStackSize(), Math.min(remainder.getMaxStackSize(),
+                    remainder.getCount()));
+            inventory.setItem(slot, remainder.copyWithCount(moved));
+            remainder.shrink(moved);
+        }
+        inventory.setChanged();
+        return remainder;
     }
 
     private RecipeCatalog.RecipeDefinition recipeFor(StackKey output) {

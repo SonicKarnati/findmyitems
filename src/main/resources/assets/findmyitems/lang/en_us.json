@@ -75,6 +75,13 @@
   "screen.findmyitems.craft.no_reachable_table": "No reachable crafting table",
   "screen.findmyitems.craft.calculating": "Calculating",
   "screen.findmyitems.craft.busy": "Busy",
+  "screen.findmyitems.craft.gather": "Gathering materials",
+  "screen.findmyitems.craft.craft": "Crafting",
+  "screen.findmyitems.craft.missing": "Missing materials",
+  "screen.findmyitems.craft.full": "Inventory full",
+  "screen.findmyitems.craft.no-table": "No reachable crafting table",
   "screen.findmyitems.craft.failed": "Failed",
+  "screen.findmyitems.craft.complete": "Complete",
+  "screen.findmyitems.craft.cancelled": "Cancelled",
   "screen.findmyitems.locate.quantity": "Highlight %d × %s"
 }

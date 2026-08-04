@@ -157,6 +157,8 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             assertGatherOnlyShowsTableRequirementAfterInventorySubrecipe(context, server);
             assertExecutorReportsMenuActionFailure(context, server);
             assertExecutorTimesOutWhenMenuCallbackIsDelayed(context, server);
+            assertSourceSnapshotTemplateIsDefensive(context);
+            assertCreativeCraftedOutputOverflowIsRetained(context, server);
         }
     }
 
@@ -524,6 +526,37 @@ public final class FindMyItemsClientGameTest implements FabricClientGameTest {
             throw new AssertionError("a lost menu callback must time out: status=" + status
                     + " journal=" + context.computeOnClient(mc -> executor.transferJournal()));
         }
+    }
+
+    private static void assertSourceSnapshotTemplateIsDefensive(ClientGameTestContext context) {
+        var unchanged = context.computeOnClient(mc -> {
+            var snapshot = sourceSnapshot(new StackKey("minecraft:diamond", "{}"), CHEST, 1, 0);
+            snapshot.template().setCount(64);
+            return snapshot.template().getCount();
+        });
+        if (unchanged != 1) {
+            throw new AssertionError("SourceSnapshot.template must not expose mutable internal state");
+        }
+    }
+
+    private static void assertCreativeCraftedOutputOverflowIsRetained(
+            ClientGameTestContext context,
+            net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext server) {
+        server.runOnServer(s -> s.getPlayerList().getPlayers().forEach(player -> {
+            player.getAbilities().instabuild = true;
+            for (int slot = 0; slot < 36; slot++) {
+                player.getInventory().setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+            }
+            var remainder = dev.smpb.findmyitems.retrieval.CraftingExecutorTestAccess.insertCraftedOutput(
+                    player, new ItemStack(Items.DIAMOND));
+            player.containerMenu.setCarried(remainder);
+            if (remainder.getCount() != 1 || player.getInventory().countItem(Items.DIAMOND) != 0
+                    || player.containerMenu.getCarried().getCount() != 1) {
+                throw new AssertionError("creative crafted output overflow must remain on the cursor: remainder="
+                        + remainder + " inventory=" + player.getInventory().countItem(Items.DIAMOND)
+                        + " cursor=" + player.containerMenu.getCarried());
+            }
+        }));
     }
 
     private static CraftingPlan executorPlan(StackKey output, Map<StackKey, Long> consumed, long craftCount) {
