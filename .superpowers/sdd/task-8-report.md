@@ -7,7 +7,7 @@ code was changed.
 
 ## Test Counts
 
-- `./gradlew test`: 92 JUnit tests passed, 0 failed, 0 skipped.
+- `./gradlew test`: 94 JUnit tests passed, 0 failed, 0 skipped, including fixture-command validation.
 - `./gradlew build`: successful; includes compilation, the JUnit/check tasks, and the configured headless `runGameTest` task.
 - `./gradlew runGameTest`: 53 required GameTests passed, 0 failed.
 - `./gradlew runClientGameTest`: successful process exit; the client acceptance classes completed and produced 23 automated-test screenshots.
@@ -30,7 +30,11 @@ code was changed.
 - `src/test/resources/findmyitems-test-fixture/data/minecraft/tags/function/load.json`
 
 The setup function places accessible, obstructed, doorway-visible, far, double-chest, hopper-fed,
-crafting-table, and partial-material fixtures. Reset removes only those listed fixture blocks.
+crafting-table, and partial-material fixtures. It claims only air blocks with tagged marker entities and
+populates only marker-owned containers. Reset runs safely from any position, removes only marked blocks that
+still have their expected fixture type, and leaves pre-existing or user-replaced blocks alone. Datapack load
+does not invoke reset. The partial-material chest now supplies three diamonds and two sticks for the documented
+diamond-pickaxe gather/craft scenario.
 
 ## Screenshots
 

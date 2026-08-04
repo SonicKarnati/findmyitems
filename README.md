@@ -204,18 +204,25 @@ separate task because it starts a client, opens a game window, and writes screen
 
 ### Manual crafting planner fixture
 
-For a repeatable manual pass, copy the fixture into a test world's datapack directory, load it, and stand
-at the origin before setup:
+For a repeatable manual pass, copy the fixture into a test world's datapack directory and stand at the origin
+before setup:
 
 ```sh
 cp -R src/test/resources/findmyitems-test-fixture <test-world>/datapacks/findmyitems-test-fixture
 ./gradlew runClient
 ```
 
-In the client, run `/reload`, then `/function findmyitems:setup`. Coordinates below are relative to the
-player's position when `setup` runs (`~x ~y ~z`); open every container once so it is indexed. Run
-`/function findmyitems:reset` from the same origin after the pass. Reset removes only the blocks placed by
-setup.
+In the client, run `/reload`, then run `/function findmyitems:reset` explicitly to clear any previous fixture
+markers. This reset is safe from any player position. Stand at the chosen origin and run
+`/function findmyitems:setup`; coordinates below are relative to the player's position when `setup` runs
+(`~x ~y ~z`). Setup claims only air blocks and marks them, so it can be repeated without overwriting
+pre-existing blocks. Reset removes only marked fixture blocks that still have their expected fixture type;
+it does not restore or destroy unmarked blocks. Run `/function findmyitems:reset` explicitly after the pass.
+
+Open each unobstructed container once so it is indexed. Do not try to open the obstructed chest at `~4 ~ ~2`
+while the stone is present: temporarily remove the stone at `~4 ~ ~1`, open the chest, then put the stone back
+before testing its unreachable state. The far chest may likewise require a temporary creative-mode position
+change to open and index it.
 
 | Relative location | Fixture and expected use |
 | --- | --- |
@@ -230,13 +237,13 @@ setup.
 
 Pass/fail checklist:
 
-- [ ] **Setup/reset:** after setup, all eight fixture groups above exist; after reset, those blocks are air and nearby pre-existing blocks are unchanged.
+- [ ] **Setup/reset:** after setup, all eight unoccupied fixture groups above exist; after reset, owned blocks are air and nearby pre-existing blocks are unchanged.
 - [ ] **Search:** `bed` ranks the white bed, `white bed` matches it, `bedrock` does not match the bed, `whit bed` exercises fuzzy matching, and repeated whitespace behaves like normalized whitespace.
 - [ ] **Reachability:** `~2 ~ ~2` is reachable, `~4 ~ ~2` is obstructed, `~6 ~ ~2` is visible through the doorway, and `~30 ~ ~2` is out of range. Record locate count zero/positive for each.
 - [ ] **Containers:** the double chest at `~8 ~ ~2`/`~9 ~ ~2` and hopper-fed chest at `~12 ~ ~2` index correctly; no item count changes merely from indexing.
 - [ ] **Crafting browse:** empty browse opens without planning, rows remain usable at the bottom of the list, and changing the filter clears an invalid selection.
 - [ ] **Planning:** exercise roots at multiple depths, shared stock, SCC cycles, and batch surplus; the plan terminates and never spends the same stock twice.
-- [ ] **Execution:** with the table at `~14 ~ ~2`, gather-only and gather-and-craft succeed using `~16 ~ ~2`; repeat with no reachable table and verify the clear failure state.
+- [ ] **Execution:** with the table at `~14 ~ ~2`, gather-only and gather-and-craft succeed using the three diamonds and two sticks at `~16 ~ ~2`; repeat with no reachable table and verify the clear failure state.
 - [ ] **Failure handling:** verify cancellation, stale sources, and a near-full player inventory do not create or destroy items.
 
 Only crafting-table recipes and player-inventory recipes are supported; smelting and other processing

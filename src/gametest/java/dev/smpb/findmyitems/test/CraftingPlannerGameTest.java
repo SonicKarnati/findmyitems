@@ -1,6 +1,5 @@
 package dev.smpb.findmyitems.test;
 
-import dev.smpb.findmyitems.craft.CraftingPlan;
 import dev.smpb.findmyitems.craft.CraftingPlanner;
 import dev.smpb.findmyitems.craft.PlanningInventory;
 import dev.smpb.findmyitems.craft.PlanningPolicy;
