@@ -109,28 +109,23 @@ public final class InventorySimulation {
     public record PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys,
                                           Map<StackKey, ItemStack> templates,
                                           HolderLookup.Provider registries) {
-        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys) {
-            this(slots, keys, Map.of(), null);
-        }
-
-        public PlayerInventorySnapshot(List<ItemStack> slots, List<StackKey> keys,
-                                       Map<StackKey, ItemStack> templates) {
-            this(slots, keys, templates, null);
-        }
-
         public PlayerInventorySnapshot {
+            if (registries == null) throw new IllegalArgumentException("registry access is required for inventory snapshots");
             if (slots.size() != STORAGE_SLOTS) throw new IllegalArgumentException("player storage must have 36 slots");
             if (keys.size() != STORAGE_SLOTS) throw new IllegalArgumentException("snapshot keys must have 36 slots");
             slots = slots.stream().map(ItemStack::copy).toList();
             keys = java.util.Collections.unmodifiableList(new ArrayList<>(keys));
             templates = templates.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
                     Map.Entry::getKey, entry -> entry.getValue().copyWithCount(1)));
-            if (!templates.isEmpty() && registries == null) {
-                throw new IllegalArgumentException("registry access is required for snapshot templates");
-            }
-            if (registries != null && templates.entrySet().stream()
-                    .anyMatch(entry -> !entry.getKey().equals(key(entry.getValue(), registries)))) {
+            if (templates.entrySet().stream().anyMatch(entry -> !entry.getKey().equals(key(entry.getValue(), registries)))) {
                 throw new IllegalArgumentException("snapshot template does not match its StackKey");
+            }
+            for (var index = 0; index < slots.size(); index++) {
+                var stack = slots.get(index);
+                var supplied = keys.get(index);
+                if (stack.isEmpty() ? supplied != null : !key(stack, registries).equals(supplied)) {
+                    throw new IllegalArgumentException("snapshot StackKey does not match its ItemStack");
+                }
             }
         }
 
@@ -139,12 +134,12 @@ public final class InventorySimulation {
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys) {
-            return new PlayerInventorySnapshot(slots, keys);
+            throw new IllegalArgumentException("registry access is required for inventory snapshots");
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys,
                                                  Map<StackKey, ItemStack> templates) {
-            return new PlayerInventorySnapshot(slots, keys, templates);
+            throw new IllegalArgumentException("registry access is required for inventory snapshots");
         }
 
         public static PlayerInventorySnapshot of(List<ItemStack> slots, List<StackKey> keys,

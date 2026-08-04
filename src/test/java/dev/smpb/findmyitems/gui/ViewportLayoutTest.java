@@ -70,4 +70,13 @@ final class ViewportLayoutTest {
         assertEquals(0, negativeInfinity.scroll());
         assertTrue(Double.isFinite(nan.scroll()));
     }
+
+    @Test
+    void hitTestRejectsCoordinatesOutsideHorizontalViewport() {
+        var layout = ViewportLayout.layout(10, 100, 0, 80, 20, 4, 0, 0);
+
+        assertEquals(OptionalInt.of(0), layout.hitTest(10, 10));
+        assertEquals(OptionalInt.empty(), layout.hitTest(9, 10));
+        assertEquals(OptionalInt.empty(), layout.hitTest(100, 10));
+    }
 }

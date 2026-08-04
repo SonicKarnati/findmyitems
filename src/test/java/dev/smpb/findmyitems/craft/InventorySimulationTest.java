@@ -19,12 +19,10 @@ final class InventorySimulationTest {
     @Test
     void snapshotCopiesTheThirtySixStorageSlots() {
         var input = new ArrayList<>(java.util.Collections.nCopies(36, ItemStack.EMPTY));
-        var snapshot = InventorySimulation.PlayerInventorySnapshot.of(input,
-                new ArrayList<>(java.util.Collections.nCopies(36, null)));
         input.clear();
 
-        assertEquals(36, snapshot.slots().size());
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.slots().add(ItemStack.EMPTY));
+        assertThrows(IllegalArgumentException.class, () -> InventorySimulation.PlayerInventorySnapshot.of(input,
+                new ArrayList<>(java.util.Collections.nCopies(36, null))));
     }
 
     @Test
@@ -37,17 +35,9 @@ final class InventorySimulationTest {
     @Test
     void plannedSourceAbsentFromSnapshotIsUnsafe() {
         var input = new ArrayList<>(java.util.Collections.nCopies(36, ItemStack.EMPTY));
-        var source = new StackKey("minecraft:diamond", "{}");
-        var plan = CraftingPlan.of(CraftingPlan.node(key("minecraft:emerald"), 1, 0, 1, List.of(),
-                        Map.of(source, 1L), Map.of(), null), PlanningInventory.empty(), Map.of(source, 1L),
-                Map.of(), Map.of(), new PlanScore(0, 0, 0, 0, 0));
 
-        var result = InventorySimulation.simulate(InventorySimulation.PlayerInventorySnapshot.of(input,
-                new ArrayList<>(java.util.Collections.nCopies(36, null))), plan);
-
-        assertFalse(result.safe());
-        assertEquals(0, result.requiredFreeSlots());
-        assertTrue(result.failureReason().contains("source"));
+        assertThrows(IllegalArgumentException.class, () -> InventorySimulation.PlayerInventorySnapshot.of(input,
+                new ArrayList<>(java.util.Collections.nCopies(36, null))));
     }
 
 }

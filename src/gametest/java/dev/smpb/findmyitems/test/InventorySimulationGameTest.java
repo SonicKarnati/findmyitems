@@ -4,11 +4,14 @@ import dev.smpb.findmyitems.craft.CraftingPlan;
 import dev.smpb.findmyitems.craft.InventorySimulation;
 import dev.smpb.findmyitems.craft.PlanScore;
 import dev.smpb.findmyitems.craft.PlanningInventory;
+import dev.smpb.findmyitems.craft.RecipeCatalog;
 import dev.smpb.findmyitems.model.StackKey;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -75,10 +78,14 @@ public final class InventorySimulationGameTest {
                 plan(output, 1, Map.of(absent, 1L), Map.of(), Map.of()));
         helper.assertTrue(!result.safe() && result.failureReason().contains("source"), "absent source was accepted");
 
-        stacks.set(0, new ItemStack(Items.DIAMOND_SWORD));
-        keys.set(0, new StackKey("minecraft:diamond_sword", "{}"));
+        var enchanted = new ItemStack(Items.DIAMOND_SWORD);
+        enchanted.enchant(helper.getLevel().registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                .getOrThrow(Enchantments.SHARPNESS), 5);
+        var enchantedKey = RecipeCatalog.stackKey(enchanted, helper.getLevel());
+        stacks.set(0, enchanted);
+        keys.set(0, enchantedKey);
         var incompatible = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(output, new ItemStack(Items.EMERALD)), helper),
-                plan(output, 1, Map.of(new StackKey("minecraft:diamond_sword", "{sharpness:5}"), 1L), Map.of(), Map.of()));
+                plan(output, 1, Map.of(key("minecraft:diamond_sword"), 1L), Map.of(), Map.of()));
         helper.assertTrue(!incompatible.safe(), "incompatible component source was accepted");
         helper.succeed();
     }
@@ -112,6 +119,28 @@ public final class InventorySimulationGameTest {
             rejected = true;
         }
         helper.assertTrue(rejected, "mismatched template was trusted");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE)
+    public void bottleRemainderIsConserved(GameTestHelper helper) {
+        var potion = new ItemStack(Items.POTION);
+        var input = RecipeCatalog.stackKey(potion, helper.getLevel());
+        var output = key("minecraft:emerald");
+        var bottle = key("minecraft:glass_bottle");
+        var stacks = emptySlots();
+        stacks.set(0, potion);
+        var keys = new ArrayList<StackKey>(Collections.nCopies(36, null));
+        keys.set(0, input);
+        var result = InventorySimulation.simulate(snapshot(stacks, keys, Map.of(
+                output, new ItemStack(Items.EMERALD), bottle, new ItemStack(Items.GLASS_BOTTLE)), helper),
+                plan(output, 1, Map.of(input, 1L), Map.of(), Map.of(bottle, 1L)));
+
+        helper.assertTrue(result.safe(), result.failureReason());
+        helper.assertTrue(result.finalStacks().stream().anyMatch(stack -> stack.is(Items.GLASS_BOTTLE)),
+                "bottle remainder was lost");
+        helper.assertTrue(result.finalStacks().stream().mapToInt(ItemStack::getCount).sum() == 2,
+                "potion to output plus bottle was not conserved");
         helper.succeed();
     }
 }
