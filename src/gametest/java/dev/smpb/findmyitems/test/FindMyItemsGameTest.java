@@ -18,6 +18,7 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.component.ItemContainerContents;
@@ -28,6 +29,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.resources.Identifier;
 
 import java.time.Instant;
 import java.util.List;
@@ -393,6 +395,34 @@ public final class FindMyItemsGameTest {
         helper.assertTrue(results.getFirst().totalCount() == 12,
                 "expected 12 diamonds, got " + results.getFirst().totalCount());
         helper.assertTrue(index.search("netherite").isEmpty(), "unrelated query must not match");
+        helper.succeed();
+    }
+
+    @GameTest(structure = EMPTY_STRUCTURE, maxTicks = 40)
+    public void searchRanksBedQueriesAndNormalizesWhitespace(GameTestHelper helper) {
+        var chest = placeChest(helper, new ItemStack(BuiltInRegistries.ITEM
+                .get(Identifier.parse("minecraft:white_bed")).orElseThrow()));
+        chest.setItem(1, new ItemStack(Items.BEDROCK));
+        var player = playerNextToChest(helper);
+        var absolute = helper.absolutePos(CHEST);
+        var key = SourceKey.storage(dimension(helper), ContainerKind.CHEST,
+                List.of(new BlockPosition(absolute.getX(), absolute.getY(), absolute.getZ())));
+        var index = new InMemoryContainerIndex();
+        index.observe(new ContainerObservation(key, List.of(key), SlotReader.readContainerSlots(chest, player), Instant.now()));
+
+        var bed = index.search("bed").stream().map(result -> result.key().itemId()).toList();
+        var whiteBed = index.search("white bed").stream().map(result -> result.key().itemId()).toList();
+        var bedrock = index.search("bedrock").stream().map(result -> result.key().itemId()).toList();
+        var typo = index.search("whit bed").stream().map(result -> result.key().itemId()).toList();
+        var repeatedWhitespace = index.search("  white   bed  white ").stream()
+                .map(result -> result.key().itemId()).toList();
+
+        helper.assertTrue(bed.equals(List.of("minecraft:white_bed", "minecraft:bedrock")),
+                "bed should rank the exact item before bedrock: " + bed);
+        helper.assertTrue(whiteBed.equals(List.of("minecraft:white_bed")), "white bed query mismatch: " + whiteBed);
+        helper.assertTrue(bedrock.equals(List.of("minecraft:bedrock")), "bedrock query mismatch: " + bedrock);
+        helper.assertTrue(typo.equals(List.of("minecraft:white_bed")), "typo query mismatch: " + typo);
+        helper.assertTrue(repeatedWhitespace.equals(whiteBed), "repeated whitespace changed results: " + repeatedWhitespace);
         helper.succeed();
     }
 

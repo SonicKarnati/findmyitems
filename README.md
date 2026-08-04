@@ -199,6 +199,26 @@ Three test layers are available. All three run without loading a world by hand.
 
 `./gradlew build` runs the JUnit layer. The other two are separate tasks because they start Minecraft. `runClientGameTest` opens a game window and writes screenshots to `build/run/clientGameTest/screenshots/`.
 
+### Manual crafting planner fixture
+
+For a repeatable manual pass, copy `src/test/resources/findmyitems-test-fixture` into the test world's
+`datapacks/findmyitems-test-fixture` directory, then run `/reload`. Stand at the origin of the fixture
+area and run `/function findmyitems:setup`; run `/function findmyitems:reset` afterward. `reset` removes
+only the blocks placed by `setup`.
+
+The setup places an accessible chest, an obstructed chest, a doorway-visible chest, a far chest, a double
+chest, a hopper-fed chest, a crafting table, and a chest with partial crafting materials. Open each
+container once so it is indexed. Check `bed`, `white bed`, `bedrock`, `whit bed`, and repeated whitespace;
+crafting roots at multiple depths, shared stock, SCC cycles, and batch surplus; empty crafting browse,
+bottom clipping, selection invalidation, obstruction, zero and positive locate counts, a reachable table,
+no table, cancellation, stale sources, and a full inventory. Check gather-only and gather-and-craft as well.
+
+Only crafting-table recipes and player-inventory recipes are supported; smelting and other processing
+stations are intentionally not part of the fixture or planner.
+
+For the manual pass, use `./gradlew runClient`, record each case with its setup and expected/actual result,
+and keep screenshots under `build/run/clientGameTest/screenshots/` plus relevant lines from `logs/latest.log`.
+
 ## Modules
 
 Source is split into three source sets. `main` contains code that may run on either side, `client` contains client-only code, and `gametest` contains in-game tests. Package root is `dev.smpb.findmyitems`.
