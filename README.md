@@ -2,6 +2,8 @@
 
 A client-side Fabric mod for Minecraft Java Edition that indexes the contents of containers you have opened and lets you search and retrieve items from them.
 
+findmyitems downloads: 92
+
 ## Overview
 
 `findmyitems` records what it sees whenever you open a storage container in a single-player world. Those records form an index you can search from one screen, so you do not have to open chests one at a time to find an item.
